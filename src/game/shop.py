@@ -1,0 +1,161 @@
+import pygame
+
+from .config import COLORS, SHOP_ITEMS, WINDOW_WIDTH
+from .fonts import load_font
+
+CARD_WIDTH = 680
+CARD_HEIGHT = 72
+CARD_GAP = 12
+CARD_START_X = (WINDOW_WIDTH - CARD_WIDTH) // 2
+
+
+class ShopScreen:
+    def __init__(self, level: int, coins: int, player) -> None:
+        self.level = level
+        self.coins = coins
+        self.player = player
+        self.selected = 0
+        self.error_message = ""
+        self.error_timer = 0.0
+        self.items = SHOP_ITEMS
+        self.exit_label = "返回标题" if level >= 2 else "进入下一关"
+        self.done = False
+        self.title_font = load_font(48, bold=True)
+        self.item_font = load_font(26)
+        self.small_font = load_font(20)
+        self.coin_font = load_font(24, bold=True)
+
+    def _can_afford(self, item: dict) -> bool:
+        return self.coins >= item["price"]
+
+    def _purchase(self, item: dict) -> None:
+        if not self._can_afford(item):
+            self.error_message = "金币不足！"
+            self.error_timer = 1.5
+            return
+        self.coins -= item["price"]
+        key = item["key"]
+        if key == "attack":
+            self.player.attack += 1
+        elif key == "max_hp":
+            self.player.max_hp += 1
+            self.player.hp += 1
+        elif key == "fire_speed":
+            self.player.cooldown = max(0.1, self.player.cooldown - 0.05)
+        elif key == "move_speed":
+            self.player.speed += 0.5
+        elif key == "heal":
+            self.player.heal(3)
+        self.error_message = "购买成功！"
+        self.error_timer = 1.0
+
+    def handle_event(self, event: pygame.event.Event) -> str | None:
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_UP:
+                self.selected = (self.selected - 1) % (len(self.items) + 1)
+                self.error_message = ""
+            elif event.key == pygame.K_DOWN:
+                self.selected = (self.selected + 1) % (len(self.items) + 1)
+                self.error_message = ""
+            elif event.key == pygame.K_RETURN:
+                if self.selected < len(self.items):
+                    self._purchase(self.items[self.selected])
+                else:
+                    self.done = True
+                    return "exit"
+            elif event.key == pygame.K_ESCAPE:
+                self.done = True
+                return "exit"
+        return None
+
+    def update(self, dt: float) -> None:
+        self.error_timer = max(0.0, self.error_timer - dt)
+
+    def _draw_coin_icon(self, surface: pygame.Surface, center: tuple[int, int]) -> None:
+        pygame.draw.circle(surface, COLORS["highlight"], center, 12)
+        pygame.draw.circle(surface, COLORS["background"], center, 12, 3)
+        pygame.draw.circle(surface, (200, 150, 30), center, 5)
+
+    def _draw_coins(self, surface: pygame.Surface) -> None:
+        x = (WINDOW_WIDTH - CARD_WIDTH) // 2
+        self._draw_coin_icon(surface, (x + 16, 140))
+        coin_text = f"金币：{self.coins}"
+        surf = self.item_font.render(coin_text, True, COLORS["highlight"])
+        surface.blit(surf, (x + 38, 120))
+
+    def _card_y(self, index: int) -> int:
+        return 190 + index * (CARD_HEIGHT + CARD_GAP)
+
+    def _draw_card(
+        self,
+        surface: pygame.Surface,
+        index: int,
+        label: str,
+        price: int | None,
+        desc: str,
+        selected: bool,
+        can_afford: bool,
+    ) -> None:
+        rect = pygame.Rect(CARD_START_X, self._card_y(index), CARD_WIDTH, CARD_HEIGHT)
+        if selected:
+            fill = (58, 60, 74) if can_afford else (58, 52, 52)
+            border = COLORS["highlight"] if can_afford else COLORS["error"]
+        else:
+            fill = (40, 42, 52)
+            border = COLORS["disabled"] if not can_afford else COLORS["info"]
+        pygame.draw.rect(surface, fill, rect, border_radius=10)
+        pygame.draw.rect(surface, border, rect, 3, border_radius=10)
+
+        color = COLORS["highlight"] if selected else COLORS["hud"]
+        if not can_afford and not selected:
+            color = COLORS["disabled"]
+        label_surf = self.item_font.render(label, True, color)
+        surface.blit(label_surf, (rect.x + 24, rect.y + 8))
+        desc_surf = self.small_font.render(desc, True, COLORS["info"])
+        surface.blit(desc_surf, (rect.x + 24, rect.y + 40))
+
+        if price is not None:
+            coin_center = (rect.right - 92, rect.centery)
+            self._draw_coin_icon(surface, coin_center)
+            price_color = COLORS["hud"] if can_afford else COLORS["disabled"]
+            price_surf = self.coin_font.render(str(price), True, price_color)
+            surface.blit(price_surf, (coin_center[0] + 18, coin_center[1] - 16))
+
+    def draw(self, surface: pygame.Surface) -> None:
+        surface.fill(COLORS["background"])
+        title = f"第 {self.level} 关通过！商店"
+        title_surf = self.title_font.render(title, True, COLORS["title"])
+        surface.blit(title_surf, ((WINDOW_WIDTH - title_surf.get_width()) // 2, 50))
+        self._draw_coins(surface)
+
+        for i, item in enumerate(self.items):
+            self._draw_card(
+                surface,
+                i,
+                item["name"],
+                item["price"],
+                item["desc"],
+                selected=i == self.selected,
+                can_afford=self._can_afford(item),
+            )
+
+        self._draw_card(
+            surface,
+            len(self.items),
+            self.exit_label,
+            None,
+            "确认后进入下一关" if self.level < 2 else "确认后返回标题",
+            selected=self.selected == len(self.items),
+            can_afford=True,
+        )
+
+        if self.error_timer > 0:
+            color = COLORS["error"] if "不足" in self.error_message else COLORS["ok"]
+            error_surf = self.item_font.render(self.error_message, True, color)
+            surface.blit(
+                error_surf,
+                (
+                    (WINDOW_WIDTH - error_surf.get_width()) // 2,
+                    self._card_y(len(self.items)) + CARD_HEIGHT + 16,
+                ),
+            )
