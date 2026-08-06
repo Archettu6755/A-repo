@@ -1,217 +1,159 @@
-# 地图生成算法调研报告
+# 地图设计规范
 
-> 调研对象：类《以撒的结合》2D 俯视角射击 roguelike（Python + Pygame）
-> 现状：1~3 个水平排列的固定 1024x576 房间、门连接、障碍物随机生成
-> 调研重点：**单房间内部障碍布局**（非房间拓扑）
-> 状态：调研文档，非需求协议。结论待与需求文档同步确认后实施。
+本文件是正式需求的一部分。地图实现和美术资源必须同时遵守 `docs/proposal.md` 与本文件。
 
-## 一、以撒式"房间拼接型"地图的关键设计思路
+## 1. 设计目标
 
-来源：Isaac 官方 Lua API 文档（Level / RoomDescriptor）+ 社区分析。
+地图服务于短距离射击、僵尸冲锋和黑暗探索。房间需要给玩家留出绕行空间，也要提供能够中断冲锋的掩体。随机性来自房间组合、模板变换、敌人位置和装饰，不来自任意矩形堆叠。
 
-1. **楼层 = 13×13 房间网格**。每个房间占据 1~4 个网格单元（1x1 / 1x2 / 2x1 / 2x2 / L 形）。
-2. **两步生成**：先决定"哪些格子有房间、什么类型"，再为每个房间挑选预制布局（房间内部是固定 tile 布局 + 内部 13×13 网格实体槽）。即**拓扑随机、内容预制**——房间内容不过程序生成，只做选择。
-3. **特殊房间按规则放置**：出生房、Boss 房（远离出生点/在边缘）、宝库、商店等，有最小距离约束和数量上限。
-4. **门 = 邻接关系的产物**。两格相邻即生成门洞；以撒**没有走廊**，房间直接贴邻，门就是通道。
-5. **每个房间带独立种子**：实体/掉落、装饰、清房奖励各一个种子，可复现关卡。
+## 2. 坐标与网格
 
-**对"单房间"的启示**：以撒房间内部本质上是固定尺寸的 tile 网格，障碍生成就是"在这个网格上按规则放柱子/坑/刺"。
+| 项目 | 规格 |
+| --- | --- |
+| 窗口 | 1280x720 |
+| 房间 | 1024x576 |
+| 房间偏移 | 居中后向下 48px |
+| 逻辑网格 | 32x18 |
+| 单格 | 32x32px |
+| 外墙 | 一格厚 |
+| 内部区域 | 30x16 格 |
+| 门洞 | 两格宽 |
 
-## 二、算法对比
+角色以脚底中心作为世界坐标。碰撞框与显示画布分离，角色图片可以高于一个格子，但脚底不得偏离碰撞框中心。
 
-### 1. BSP（二叉空间分割）— 房间+走廊
+## 3. 关卡拓扑
 
-- 原理：把整块地图递归二分成矩形子区域，直到叶子大小≈房间；每个叶子内放一个随机大小房间（天然不重叠）；自底向上用 L/Z 形走廊连接兄弟区域，保证全连通。
-- 优点：实现简单（约 50 行）、房间永不重叠、天然连通、可控制密度。
-- 缺点：全是矩形房间，风格单调；难以表达以撒式"网格房间+门"。
-- 适用：经典俯视角地牢；可降级用于单房间内分区。
+第一关生成 2 至 3 个普通房间，第二关和第三关各生成 2 至 4 个普通房间。生成器在小型二维坐标网格上放置房间，每次从出生房扩展一个相邻空坐标，直到达到目标数量。
 
-### 2. WFC（波函数坍缩）— tile 级约束生成
+第一关的 2、3 房等概率；第二关和第三关的 2、3、4 房等概率。
 
-- 原理：把地图看作 tile 网格，每格是候选 tile 集合的叠加态；反复取熵最小格"坍缩"，再用邻接约束传播。两个模型：Overlapping（从样例图学习模式）和 Simple Tiled（手写 tile 邻接规则）。支持约束合成。
-- 优点：风格统一、有局部结构的室内布局；对"房间内网格"天然契合。
-- 缺点：可能坍缩失败需回溯/重试；效果依赖 tile 集和邻接表设计。
-- 适用：**单房间内部障碍布局**；已被《Caves of Qud》《Bad North》使用。
+生成规则：
 
-### 3. 房间拼接 / 圆形布局（TinyKeep 式）
+1. 所有房间连通。
+2. 每个门在相邻房间中都有对应门。
+3. 每关最多包含一个短分支。
+4. 出生房位于拓扑端点。
+5. 不生成环路和走廊。
+6. 当前房间单独显示，跨门后切换画面。
 
-- 原理：随机撒矩形（允许重叠）→ 物理分离 → Delaunay 三角剖分建邻接图 → 取最小生成树(MST)做主通路 + 随机回几条边 → 沿图边生成走廊。
-- 优点：房间位置/大小自由度最高。
-- 缺点：实现量最大；对"水平排列 1~3 个房间"的现状是杀鸡用牛刀。
-- 适用：整层拓扑生成；其"网格图 + MST"思路可复用于以撒式门图。
+第三关另有一个独立 Boss 房，不计入普通房间数量。玩家离开第三关商店后直接进入该房间；Boss 房不参与普通房间随机拓扑。
 
-| | BSP | WFC | 房间拼接(TinyKeep) |
-|---|---|---|---|
-| 实现成本 | ★ | ★★★ | ★★★★ |
-| 风格 | 矩形地牢 | 样式丰富、统一 | 自由蜂巢 |
-| 失败处理 | 无 | 可能冲突需重试 | 无 |
-| 最佳场景 | 整层 | **单房间 tile 布局** | 整层拓扑/环形图 |
+拓扑数据必须记录随机种子、房间坐标、门掩码、模板编号、清理状态和照明状态。
 
-## 三、开源项目参考
+## 4. 模板数据
 
-| 项目 | 链接 | 说明 | 技术栈 |
-|---|---|---|---|
-| WaveFunctionCollapse | https://github.com/mxgmn/WaveFunctionCollapse | WFC 鼻祖，25k★，overlapping/tiled 双模型，README 含算法详解与语言移植清单 | C# |
-| wfc_python | https://github.com/ikarth/wfc_python | mxgmn 官方清单收录的 overlapping 模型 Python 移植，纯 Python 易读 | Python |
-| python-tcod | https://github.com/libtcod/python-tcod | 经典 roguelike 库（BSP、FOV、A*），配套教程有完整 Python 房间+走廊生成代码 | Python |
-| DungeonGenerator | https://github.com/jongallant/DungeonGenerator | TinyKeep 算法完整实现（分离 + Delaunay + MST + 回边） | C#/Unity |
-| Procedural-Cave-Generation | https://github.com/SebLague/Procedural-Cave-Generation | 元胞自动机生成洞穴 + 连通分量后处理（对"生成障碍后保证可达"思路可抄） | C#/Unity |
-| tutorial-dungeon-generation | https://github.com/Tiendil/tutorial-dungeon-generation | 极简 Python 地牢生成教程 | Python |
+模板使用可读的数据文件保存，建议格式为 JSON 或 Python 数据类。每个模板至少包含以下字段：
 
-## 四、针对本项目的建议（按性价比排序）
+```text
+id
+name
+difficulty
+tags
+allowed_door_masks
+player_spawn_cells
+enemy_spawn_cells
+switch_cells
+solid_cells
+pit_cells
+crate_cells
+decal_cells
+```
 
-1. **网格化 + 规则放障碍（先做）**：房间内部划分 tile 网格（如 64px → 16×9 或 32px → 32×18），障碍只在格子上。规则：出生点和门附近 1~2 格净空；房间中央留 1/3 空间（保证走位）；柱子不贴墙、不与门正对。成本最低、稳定性最高，也是以撒的真实做法。
-2. **对称布局（强烈推荐）**：随机生成左半边障碍，然后镜像到右半边（或上下镜像），天然平衡、好看、可读性好。可混入少量非对称点缀。
-3. **WFC Simple Tiled 生成室内 tilemap（中期）**：定义 tile 集（空/柱子/平面墙/坑/不可达地块）和邻接表，在网格上跑 WFC。失败就换种子重试。
-4. **迷宫式障碍（可选）**：递归回溯/最小生成树迷宫生成"不完全墙"（留缺口），或轻量 BSP 分区填障碍区，营造绕行空间。
-5. **连通性后处理（必须）**：生成后做可达性检查（BFS 从出生点到门、到全图空地），不达标则重生成或打开障碍。
-6. **以"房间模板池"为终态**：把生成器产出的优秀布局落盘为模板（每类房间 20~50 个），运行时随机抽。可控、可调、可平衡，最接近以撒手感。
+门掩码使用 `N/E/S/W`。模板只在门掩码兼容时参与抽取。
 
-**结论**：先做"网格化 + 规则 + 对称 + 可达性校验"（一两天工作量，立刻见效）；WFC 作为下一个迭代目标；整层拓扑算法（BSP/TinyKeep）当前需求不大，等做多房间树状地图时再引入，届时参考 TinyKeep 的 MST 方案。
+## 5. 首批模板
 
-## 五、待深入调研的方向
+| 编号 | 类型 | 结构 |
+| --- | --- | --- |
+| O01 | 开阔 | 四角少量柱子 |
+| O02 | 开阔 | 两侧矮墙，中部净空 |
+| O03 | 开阔 | 中央单一掩体 |
+| S01 | 对称 | 左右镜像柱阵 |
+| S02 | 对称 | 上下镜像矮墙 |
+| S03 | 对称 | 十字形中央区域 |
+| C01 | 掩体 | 交错双柱和箱子 |
+| C02 | 掩体 | 两条冲锋中断线 |
+| D01 | 分割 | 中央横向隔断，双侧开口 |
+| D02 | 分割 | 中央纵向隔断，上下开口 |
+| P01 | 裂隙 | 两簇裂隙，中间保留桥道 |
+| P02 | 裂隙 | 单侧水坑和环形通路 |
 
-- WFC Simple Tiled 的 tile 集与邻接表设计实例
-- 以撒房间布局"对称生成"的具体实现细节
-- 房间模板池的模板数据结构与存储格式
-- 可达性校验的轻量实现（BFS 在网格上的成本）
-- 迷宫生成（递归回溯/MST）在矩形房间内的适配
+模板可以左右镜像、上下镜像或旋转 180 度。变换后必须重新校验门、出生点和机关可达性。
 
-## 六、深入调研：固定尺寸房间内墙壁/障碍/坑布局生成
+## 6. 空间规则
 
-> 补充调研（第二轮），针对固定 1024x576 房间（约 16x9 格 @64px 或 32x18 格 @32px）的生成逻辑。
+- 出生点周围 3x3 格绝对净空。
+- 门内两格不得放置障碍、箱子、机关或敌人。
+- 主要通路至少两格宽。
+- 不可到达地块不得紧贴整个墙边形成封锁。
+- 裂隙按 2 至 6 格簇状放置，必须保留绕行路线。
+- 每个房间至少有一条连续绕行路线，玩家不应被迫停在死角射击。
+- 重型僵尸房间至少有两个可中断冲锋的障碍。
+- 快速僵尸房间保留不低于 55% 的开阔面积。
+- 机关不得位于出生点直视线上，也不得位于唯一死角。
+- 敌人出生时，两实体分离圆的边缘间距不得低于 8px。
 
-### 6.1 关键发现：以撒的房间内部布局不是程序生成的
+敌人和箱子按以下预算放置：
 
-- 每个房间是**关卡设计师手工画好的静态布局**（.stb 文件），`rooms.xml` 只存元数据，运行时按权重抽取一个房间。
-- `RoomConfig_Room` 字段：StageID / Type / Variant / Difficulty / Shape / Width / Height / Doors（8 门槽位掩码）/ Weight / Spawns。**无任何"障碍生成算法"字段**。
-- 1x1 房间格子索引 0–134（15x9 网格 + 周边一圈墙，每格 64px）。
+| 关卡 | 敌人总数 | 箱子总数 |
+| --- | ---: | ---: |
+| 第一关 | 10 至 12 | 房间数 + 0 至 1 |
+| 第二关 | 14 至 16 | 房间数 + 1 至 2 |
+| 第三关 | 18 至 20 | 房间数 + 2 至 3 |
 
-### 6.2 GridEntity 类型（对应"墙壁/障碍/坑"）
+第一关有两个房间时，每房分配 5 至 6 个敌人；有三个房间时，每房固定 4 个。第二关和第三关尽量平均分配敌人，余数随机分配。每个普通房间先放置一个箱子，再把额外箱子随机分配到普通房间。
 
-`GridEntityType`（0–27）按项目对应关系分类：
+## 7. 房间验证
 
-| 分类 | 枚举值 | 说明 |
-|---|---|---|
-| 不可破坏 | GRID_WALL (15) | 房间边框墙 |
-| 可破坏 | GRID_ROCK (2)、GRID_ROCKB (3)、GRID_PILLAR (24)、GRID_TNT (12)、GRID_STATUE (21) 等 | 被炸弹/弹幕摧毁 |
-| 不可达 | GRID_PIT (7)、GRID_GRAVITY (19) | 坑有碰撞，弹幕落入消失 |
-| 危险地板 | GRID_SPIKES (8)、GRID_SPIKES_ONOFF (9)、GRID_SPIDERWEB (10) | 可走但造成伤害 |
-| 功能格 | GRID_DOOR (16)、GRID_TRAPDOOR (17)、GRID_STAIRS (18)、GRID_PRESSURE_PLATE (20) | |
+生成阶段依次执行：
 
-### 6.3 可考证的放置规则（编辑器/设计约定）
+1. 检查门掩码是否兼容。
+2. 使用 BFS 检查出生点到所有门和机关的连通性。
+3. 检查门内净空和出生安全区。
+4. 检查可行走面积比例。
+5. 从候选点中抽取敌人和箱子位置。
+6. 检查敌人出生点之间的间距，禁止碰撞圆重叠。
+7. 再次检查玩家至少有一条逃离敌人包围的通路。
 
-- **出生点净化**：出生点格及周围一圈必须为空。
-- **门区域净化**：门内 2–3 格无实体障碍。
-- **坑不贴墙**：坑至少与墙留 1 格走道。
-- **不封死**：保证从出生点到所有门连通（编辑器自动检查）。
-- **对称**：大量普通房间左右对称（视觉规整 + 视野公平）。
+失败时更换模板，不在运行时修补结构性障碍。
 
-### 6.4 WFC Simple Tiled 邻接表设计指南
+## 8. 房间状态
 
-- **Simple Tiled Model**：瓦片列表 + 显式邻接规则，传播即邻接约束传播。对称系统用二面体群 D4：`X`(恒等 1 变换)、`I`(180° 旋转 2)、`T`(90° 旋转 4)、`L`(旋转+反射 4)。
-- 官方 `tilesets/Castle.xml` 是"坑+桥+障碍+墙"的现成范本：river/riverturn（不可达水域）、road/roadturn、bridge（桥上可走）、wall/wallriver/wallroad、ground、tower 共 11 种瓦片，邻接规则实现"river 只能与 river/riverturn/bridge 相邻；bridge 必须两端接 road 或 ground"。
-- **约束过松则无趣**：所有瓦片都能互相相邻时生成结果毫无全局结构；要有硬约束（如"坑不能单独出现"）。
-- **约束合成**：预先固定某些格子（正好用于固定出生点/门旁为空）。
-- **失败重试**：矛盾时整局重试，小房间毫秒级，重试 10 次几乎必然成功（官方 samples 有 limit=25/120 参数）。
-- **WFC 不保证连通**（Caves of Qud 的 Brian Bucklew GDC 演讲明确讨论），必须在瓦片规则或后处理层保证。
+- 玩家首次进入未清理战斗房时关闭相邻房门。
+- 当前房间敌人全部死亡后开门，并永久记录该房间的清理状态。
+- 已清理房间不再生成敌人。
+- 箱子、金币和机关状态在当前关卡内保留。
+- 玩家死亡后重新生成整个关卡，永久强化保留。
+- 只有本关全部普通房间均被清理后才进入商店。
 
-### 6.5 坑/水域放置最佳实践（Brogue）
+## 9. 第三关 Boss 房占位
 
-> 来源：Rock Paper Shotgun 对 Brogue 作者 Brian Walker 的访谈。
+- 进入顺序固定为：第三关普通房间全部清理 -> 商店 -> Boss 房。
+- Boss 房使用独立固定模板，不生成普通敌人、箱子或照明机关。
+- Boss 房进入时完全点亮，玩家可以正常移动，并通过暂停菜单返回标题界面。
+- 模板数据保留一个未启用的 `boss_spawn` 字段。本轮不在该位置生成可见对象，也不设置碰撞。
+- Boss 预留位的位置和尺寸待 Boss 方案确定后再定。
+- Boss 房之后不自动触发战斗、胜利结算或场景切换。暂停菜单返回标题界面是当前唯一离开方式。
 
-- 坑以**簇**生成（2–6 格连片，扩展概率递减）。
-- 放置后**连通性检查**："把所有湖画在透明胶片上滑动到随机位置，检查未被覆盖的可走部分是否仍完全连通，20 次失败就画小一号的湖再试"。
-- **打洞回路**：房间连接后是树形（无环），扫描墙找两侧可行走且路径距离远的墙打洞，形成环路改善探索。
+## 10. 实体碰撞
 
-### 6.6 对称布局生成
+- 玩家、普通僵尸、快速僵尸和重型僵尸的实体分离半径分别为 12px、12px、9px 和 17px。
+- 敌人移动完成后进行两两软分离。双方各承担一半修正距离，修正后不得进入墙体、障碍或不可到达地块。
+- 玩家与僵尸发生接触伤害后也要分离，避免多个敌人与玩家共享同一位置。
+- 冲锋僵尸可以推开其他僵尸，不造成友军伤害，也不因同类碰撞而眩晕。
+- 子弹命中使用独立矩形受击框，尺寸分别为普通 28x28、快速 20x20、重型 38x38。
 
-- 以撒的对称是**手工画的**，无公开程序化实现；工程做法：垂直中轴镜像（默认）、只生成左半再镜像、中轴格特殊处理、镜像后跑连通性校验。
-- 16 列网格中轴在第 8/9 列之间（偶数宽干净）；9 列网格中轴在第 5 列（奇数宽需特殊处理）。
+## 11. 照明
 
-### 6.7 连通性保证（四层次）
+未激活机关时，视野半径为 224px。光斑外完全黑暗，外围墙轮廓仍然可见。机关激活后，当前房间永久恢复正常亮度。
 
-1. **放置时避免封死**（预防）：障碍/坑不贴墙不贴门，沿墙至少 1 格走道。
-2. **生成后校验**：BFS（出生点→所有门）或并查集（出生点与门同集合）。
-3. **打洞形成回路**（改善体验）。
-4. **必经之路**（可选进阶）：Boris the Brave 的 chiseling 凿刻法（DFS 求割点，只删非割点格）。
+视野遮罩只影响显示，不影响敌人逻辑。僵尸冲锋触发距离为 160px，并在冲锋前显示 0.35 秒预警。
 
-### 6.8 落地建议（1024x576 房间）
+## 12. 不采用的方案
 
-| 项 | 推荐 |
-|---|---|
-| 网格尺寸 | **32x18 @32px** 逻辑格（障碍实体占 2x2=64px，对齐现有美术） |
-| 墙壁 | 仅周边墙（1 格逻辑厚），**不生成内墙** |
-| 障碍密度 | 以撒 1x1 房约 6–15 个岩石/柱子 = 内格面积 **5%–12%**；普通房 8%–12%，禁成排/2x2 块，单格间距 ≥1 |
-| 坑 | 簇状 2–6 格，不贴墙/门，不横穿房间，两端留桥 |
-| 净化区 | 出生点 3x3 绝对净化；门内 2 格净化 |
-| 连通性 | BFS 出生点→所有门，失败移除堵路障碍或重试 |
-| WFC vs 规则 | **先规则后 WFC**：规则生成做主方案，WFC 后期作为变体生成器（瓦片集 6–10 种） |
+- 不使用 WFC 生成战斗房。WFC 难以保证冲锋路线和遭遇节奏，制作邻接规则的成本也高于本项目需要。
+- 不使用 BSP 切分单个房间。固定单屏房不需要递归分区。
+- 不在运行时随机拉伸障碍贴图。
+- 不让程序随意增加结构性墙体。
 
-### 6.9 优先实现顺序
-
-1. **手工模板库**：5–10 个精心设计模板（含对称模板、带坑模板），按权重抽取。
-2. **规则随机生成 + 净化区**：模板上随机增删 2–4 个障碍，出生点/门净化。
-3. **对称镜像生成**：随机画左半 → 镜像 → 校验。
-4. **坑簇生成 + BFS 连通性校验 + 修复**。
-5. **（可选）WFC 瓦片集**：参照 Castle.xml 定义坑/桥/障碍/墙邻接表，接入 Python WFC 实现。
-
----
-
-## 七、参考资料清单
-
-### 7.1 以撒官方 API 文档
-
-| 参考对象 | 链接 |
-|---|---|
-| GridEntity 类（格子实体类型、碰撞类） | https://wofsauge.github.io/IsaacDocs/rep/GridEntity.html |
-| GridEntityType 枚举（28 种网格实体） | https://wofsauge.github.io/IsaacDocs/rep/enums/GridEntityType.html |
-| RoomConfig_Room（房间元数据字段） | https://wofsauge.github.io/IsaacDocs/rep/RoomConfig_Room.html |
-| RoomShape 枚举（房间形状与格子索引） | https://wofsauge.github.io/IsaacDocs/rep/enums/RoomShape.html |
-| Level（楼层生成 API） | https://wofsauge.github.io/IsaacDocs/rep/Level.html |
-| RoomDescriptor（房间描述 API） | https://wofsauge.github.io/IsaacDocs/rep/RoomDescriptor.html |
-
-### 7.2 WFC 相关
-
-| 参考对象 | 链接 |
-|---|---|
-| WFC 原版仓库（Simple Tiled、对称系统、约束合成、失败策略） | https://github.com/mxgmn/WaveFunctionCollapse |
-| 官方瓦片集示例 Rooms.xml / Castle.xml（邻接表格式范本） | https://github.com/mxgmn/WaveFunctionCollapse/tree/master/tilesets |
-| marian42 城市生成实践（邻接建模、回溯、错误处理） | https://marian42.de/article/wfc/ |
-| Boris the Brave 连通路径 chiseling 凿刻法 | https://www.boristhebrave.com/2018/04/28/random-paths-via-chiseling/ |
-| Caves of Qud 用 WFC 的演讲（Brian Bucklew，GDC 2019，讨论连通性） | https://www.youtube.com/watch?v=AdCgi9E90jw |
-
-### 7.3 WFC Python 实现
-
-| 参考对象 | 链接 |
-|---|---|
-| wfc_python（overlapping 模型 Python 移植，官方清单收录） | https://github.com/ikarth/wfc_python |
-| py-wfc-estm（Even Simpler Tile Model，纯 Python 瓦片模型，最贴合 simple tiled） | https://github.com/antigones/py-wfc-estm |
-| wave-function-collapse（纯 Python 实现） | https://github.com/Coac/wave-function-collapse |
-| GraphWaveFunctionCollapse（图上的 WFC，任意局部结构） | https://github.com/lamelizard/GraphWaveFunctionCollapse |
-| gpWFC（PyOpenCL GPU 瓦片模型） | https://github.com/s-ol/gpWFC |
-| DeBroglie（C# 参考实现，支持约束/回溯/hex 网格，Python 可参考其约束 API） | https://boristhebrave.github.io/DeBroglie |
-
-### 7.4 Roguelike 生成算法文章与教程
-
-| 参考对象 | 链接 |
-|---|---|
-| RogueBasin: Basic BSP Dungeon generation | https://www.roguebasin.com/index.php?title=Basic_BSP_Dungeon_generation |
-| RogueBasin: 元胞自动机洞穴 + flood fill 连通性修复 | https://www.roguebasin.com/index.php/Cellular_Automata_Method_for_Generating_Random_Cave-Like_Levels |
-| RogueBasin: Python 房间+走廊生成器 | https://www.roguebasin.com/index.php/A_Simple_Dungeon_Generator_for_Python_2_or_3 |
-| RogueBasin: Shattered Pixel Dungeon 地图生成流程 | https://www.roguebasin.com/index.php/Introducing_the_map_generation_algorithm_in_Shattered_Pixel_Dungeon |
-| RogueBasin: 文章总索引（Map 分类 30+ 篇） | https://www.roguebasin.com/index.php/Articles |
-| Brogue 关卡生成全流程访谈（房间贴合、打洞回路、湖的连通性放置） | https://www.rockpapershotgun.com/2015/07/28/how-do-roguelikes-generate-levels/ |
-| Gamasutra: Procedural_Dungeon_Generation_Algorithm（TinyKeep，房间拼接/MST） | http://www.gamasutra.com/blogs/AAdonaac/20150903/252889/Procedural_Dungeon_Generation_Algorithm.php |
-
-### 7.5 开源项目参考（两轮调研汇总）
-
-| 项目 | 链接 | 参考对象 | 技术栈 |
-|---|---|---|---|
-| WaveFunctionCollapse | https://github.com/mxgmn/WaveFunctionCollapse | WFC 鼻祖，README 含算法详解与移植清单 | C# |
-| wfc_python | https://github.com/ikarth/wfc_python | overlapping 模型 Python 移植，学习首选 | Python |
-| python-tcod | https://github.com/libtcod/python-tcod | roguelike 库（BSP、FOV、A*），教程含房间+走廊生成代码 | Python |
-| DungeonGenerator | https://github.com/jongallant/DungeonGenerator | TinyKeep 算法完整实现（分离+Delaunay+MST+回边） | C#/Unity |
-| Procedural-Cave-Generation | https://github.com/SebLague/Procedural-Cave-Generation | 元胞自动机洞穴 + 连通分量后处理（"生成障碍后保证可达"思路） | C#/Unity |
-| tutorial-dungeon-generation | https://github.com/Tiendil/tutorial-dungeon-generation | 极简 Python 地牢生成教程 | Python |
-| The-Binding-of-Isaac-Python | https://github.com/K1rL3s/The-Binding-of-Isaac-Python | Pygame 的以撒复刻（规模小，作参考） | Python |
+后续如果模板池超过 40 个，可以增加编辑器或模板预览工具，但运行时仍从已验证模板中抽取。
