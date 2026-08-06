@@ -47,16 +47,27 @@ class Player:
     def rect(self) -> pygame.Rect:
         return pygame.Rect(0, 0, self.size, self.size).move(self.pos.x, self.pos.y)
 
-    def move(self, dx: float, dy: float, room) -> None:
+    def move(
+        self, dx: float, dy: float, bounds: pygame.Rect, blockers: list[pygame.Rect]
+    ) -> None:
         if dx != 0 or dy != 0:
             self.facing = pygame.Vector2(dx, dy)
             if self.facing.length_squared() > 0:
                 self.facing.normalize_ip()
-        self.pos.x += dx
-        self.pos.y += dy
-        rect = self.rect
-        room.clamp_rect(rect)
-        self.pos.update(rect.x, rect.y)
+        if dx != 0:
+            self.pos.x += dx
+            rect = self.rect
+            bounds.clamp_ip(rect)
+            self.pos.x = rect.x
+            if rect.collidelist(blockers) != -1:
+                self.pos.x -= dx
+        if dy != 0:
+            self.pos.y += dy
+            rect = self.rect
+            bounds.clamp_ip(rect)
+            self.pos.y = rect.y
+            if rect.collidelist(blockers) != -1:
+                self.pos.y -= dy
 
     def try_fire(self) -> bool:
         if self.fire_timer > 0:
@@ -78,10 +89,10 @@ class Player:
     def heal(self, amount: int) -> None:
         self.hp = min(self.max_hp, self.hp + amount)
 
-    def draw(self, surface: pygame.Surface) -> None:
+    def draw(self, surface: pygame.Surface, cam_x: float = 0, cam_y: float = 0) -> None:
         if self.invincible_timer > 0 and int(self.invincible_timer * 20) % 2 == 0:
             return
-        pygame.draw.rect(surface, PLAYER_COLOR, self.rect)
+        pygame.draw.rect(surface, PLAYER_COLOR, self.rect.move(-cam_x, -cam_y))
 
 
 class Zombie:
@@ -104,7 +115,13 @@ class Zombie:
     def rect(self) -> pygame.Rect:
         return pygame.Rect(0, 0, self.size, self.size).move(self.pos.x, self.pos.y)
 
-    def update(self, dt: float, player_pos: pygame.Vector2, room) -> None:
+    def update(
+        self,
+        dt: float,
+        player_pos: pygame.Vector2,
+        room,
+        blockers: list[pygame.Rect],
+    ) -> None:
         if self.state == "stun":
             self.state_timer -= dt
             if self.state_timer <= 0:
@@ -112,15 +129,20 @@ class Zombie:
             return
 
         if self.state == "charge":
+            old = pygame.Vector2(self.pos)
             self.pos += self.charge_dir * self.speed * dt * 60
-            if self.pos.distance_to(self.charge_origin) >= ZOMBIE_MAX_CHARGE_DIST:
-                self._stun()
-                return
             rect = self.rect
             room.clamp_rect(rect)
             if rect.x != self.pos.x or rect.y != self.pos.y:
                 self._stun()
                 self.pos.update(rect.x, rect.y)
+                return
+            if rect.collidelist(blockers) != -1:
+                self._stun()
+                self.pos.update(old)
+                return
+            if self.pos.distance_to(self.charge_origin) >= ZOMBIE_MAX_CHARGE_DIST:
+                self._stun()
             return
 
         dist = self.pos.distance_to(player_pos)
@@ -134,11 +156,13 @@ class Zombie:
         move = player_pos - self.pos
         if move.length_squared() > 0:
             move = move.normalize()
-        self.pos += move * self.base_speed * dt * 60
-
-        rect = self.rect
-        room.clamp_rect(rect)
-        self.pos.update(rect.x, rect.y)
+        new_pos = self.pos + move * self.base_speed * dt * 60
+        rect = pygame.Rect(0, 0, self.size, self.size).move(new_pos)
+        if rect.collidelist(blockers) == -1:
+            self.pos = new_pos
+            rect = self.rect
+            room.clamp_rect(rect)
+            self.pos.update(rect.x, rect.y)
 
     def _stun(self) -> None:
         self.state = "stun"
@@ -156,10 +180,11 @@ class Zombie:
     def hits_player(self, player_rect: pygame.Rect) -> bool:
         return self.rect.colliderect(player_rect)
 
-    def draw(self, surface: pygame.Surface) -> None:
-        pygame.draw.rect(surface, self.color, self.rect)
+    def draw(self, surface: pygame.Surface, cam_x: float = 0, cam_y: float = 0) -> None:
+        rect = self.rect.move(-cam_x, -cam_y)
+        pygame.draw.rect(surface, self.color, rect)
         if self.state == "stun":
-            pygame.draw.circle(surface, (255, 255, 255), self.rect.center, 4)
+            pygame.draw.circle(surface, (255, 255, 255), rect.center, 4)
 
 
 class Bullet:
@@ -177,8 +202,8 @@ class Bullet:
         self.pos += self.direction * BULLET_SPEED * dt * 60
         return self.pos.distance_to(self.origin) <= BULLET_RANGE
 
-    def draw(self, surface: pygame.Surface) -> None:
-        pygame.draw.rect(surface, BULLET_COLOR, self.rect)
+    def draw(self, surface: pygame.Surface, cam_x: float = 0, cam_y: float = 0) -> None:
+        pygame.draw.rect(surface, BULLET_COLOR, self.rect.move(-cam_x, -cam_y))
 
 
 class Coin:
@@ -195,8 +220,8 @@ class Coin:
         self.timer -= dt
         return self.timer > 0
 
-    def draw(self, surface: pygame.Surface) -> None:
-        pygame.draw.rect(surface, COIN_COLOR, self.rect)
+    def draw(self, surface: pygame.Surface, cam_x: float = 0, cam_y: float = 0) -> None:
+        pygame.draw.rect(surface, COIN_COLOR, self.rect.move(-cam_x, -cam_y))
 
 
 def spawn_zombie(kind_weights: dict[str, int], pos: pygame.Vector2) -> Zombie:

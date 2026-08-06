@@ -18,6 +18,7 @@ class ShopScreen:
         self.error_message = ""
         self.error_timer = 0.0
         self.items = SHOP_ITEMS
+        self.bought_count: dict[str, int] = {item["key"]: 0 for item in self.items}
         self.exit_label = "返回标题" if level >= 2 else "进入下一关"
         self.done = False
         self.title_font = load_font(48, bold=True)
@@ -25,15 +26,35 @@ class ShopScreen:
         self.small_font = load_font(20)
         self.coin_font = load_font(24, bold=True)
 
+    def _item_price(self, item: dict) -> int:
+        return item["price"] + item["raise"] * self.bought_count[item["key"]]
+
+    def _item_capped(self, item: dict) -> bool:
+        key = item["key"]
+        if key == "attack":
+            return self.player.attack >= item.get("max_value", 99)
+        if key == "max_hp":
+            return self.player.max_hp >= item.get("max_value", 99)
+        if key == "fire_speed":
+            return self.player.cooldown <= item.get("min_value", 0.1)
+        if key == "move_speed":
+            return self.player.speed >= item.get("max_value", 99)
+        return False
+
     def _can_afford(self, item: dict) -> bool:
-        return self.coins >= item["price"]
+        return self.coins >= self._item_price(item)
 
     def _purchase(self, item: dict) -> None:
+        if self._item_capped(item):
+            self.error_message = "已达成长上限！"
+            self.error_timer = 1.5
+            return
         if not self._can_afford(item):
             self.error_message = "金币不足！"
             self.error_timer = 1.5
             return
-        self.coins -= item["price"]
+        self.coins -= self._item_price(item)
+        self.bought_count[item["key"]] += 1
         key = item["key"]
         if key == "attack":
             self.player.attack += 1
@@ -57,7 +78,7 @@ class ShopScreen:
             elif event.key == pygame.K_DOWN:
                 self.selected = (self.selected + 1) % (len(self.items) + 1)
                 self.error_message = ""
-            elif event.key == pygame.K_RETURN:
+            elif event.key == pygame.K_f:
                 if self.selected < len(self.items):
                     self._purchase(self.items[self.selected])
                 else:
@@ -129,14 +150,16 @@ class ShopScreen:
         self._draw_coins(surface)
 
         for i, item in enumerate(self.items):
+            capped = self._item_capped(item)
+            afford = self._can_afford(item)
             self._draw_card(
                 surface,
                 i,
                 item["name"],
-                item["price"],
-                item["desc"],
+                None if capped else self._item_price(item),
+                item["desc"] if not capped else "已达成长上限",
                 selected=i == self.selected,
-                can_afford=self._can_afford(item),
+                can_afford=afford and not capped,
             )
 
         self._draw_card(

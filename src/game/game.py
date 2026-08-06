@@ -3,23 +3,27 @@ import random
 import pygame
 
 from .config import (
+    BOX_COLOR,
     COIN_VALUE,
     COLORS,
     FPS,
     HEAVY_CHANCE,
     LEVEL_CLEAR_DELAY,
     LEVEL_COUNT,
+    OBSTACLE_BORDER,
+    OBSTACLE_COLORS,
     PLAYER_ATTACK,
     PLAYER_FIRE_COOLDOWN,
     PLAYER_MAX_HP,
     PLAYER_SPEED,
+    VISION_RADIUS,
     WINDOW_HEIGHT,
     WINDOW_WIDTH,
     ZOMBIE_COUNT_RANGE,
 )
 from .entities import Bullet, Coin, Player, Zombie, drop_coin
 from .fonts import load_font, warn_if_no_cjk_font
-from .level import Room
+from .level import Level
 from .shop import ShopScreen
 
 
@@ -43,8 +47,8 @@ class Game:
         )
         self.coins = 0
         self.level = 1
-        self.room = Room()
-        self.zombies: list[Zombie] = []
+        self.level_map = Level(1)
+        self.current_room = 0
         self.bullets: list[Bullet] = []
         self.coin_items: list[Coin] = []
         self.shop: ShopScreen | None = None
@@ -53,7 +57,7 @@ class Game:
 
     def start_level(self, level: int, fresh: bool) -> None:
         self.level = level
-        self.room = Room()
+        self.level_map = Level(level)
         if fresh:
             self.player.max_hp = PLAYER_MAX_HP
             self.player.attack = PLAYER_ATTACK
@@ -61,33 +65,49 @@ class Game:
             self.player.speed = PLAYER_SPEED
             self.coins = 0
         self.player.hp = self.player.max_hp
-        spawn = pygame.Vector2(
-            self.room.rect.centerx - self.player.size / 2,
-            self.room.rect.centery - self.player.size / 2,
-        )
-        self.player.pos = spawn
-        self.zombies = self._spawn_zombies()
+        self.current_room = 0
+        self.player.pos = self.room.spawn
+        self._spawn_zombies()
         self.bullets.clear()
         self.coin_items.clear()
         self.clear_timer = 0.0
         self.state = "playing"
 
-    def _spawn_zombies(self) -> list[Zombie]:
+    @property
+    def room(self):
+        return self.level_map.rooms[self.current_room]
+
+    @property
+    def camera(self) -> tuple[float, float]:
+        r = self.room.rect
+        return (r.centerx - WINDOW_WIDTH // 2, r.centery - WINDOW_HEIGHT // 2)
+
+    def _to_screen(self, pos: tuple[float, float]) -> tuple[float, float]:
+        cam_x, cam_y = self.camera
+        return (pos[0] - cam_x, pos[1] - cam_y)
+
+    def _spawn_zombies(self) -> None:
         low, high = ZOMBIE_COUNT_RANGE[self.level]
         count = random.randint(low, high)
-        weights = {"normal": 60}
+        weights = {"normal": 60, "fast": 25}
         heavy_chance = HEAVY_CHANCE[self.level]
         if heavy_chance > 0:
             weights["heavy"] = int(heavy_chance * 100)
-        weights["fast"] = 25
-        zombies = []
-        for _ in range(count):
-            pos = self.room.random_spawn_far_from(self.player.pos, min_distance=150)
+
+        def create(pos) -> Zombie:
             kind = random.choices(
                 list(weights.keys()), weights=list(weights.values()), k=1
             )[0]
-            zombies.append(Zombie(kind, pos))
-        return zombies
+            return Zombie(kind, pos)
+
+        self.level_map.spawn_zombies(count, create)
+
+    def _room_blockers(self) -> list[pygame.Rect]:
+        blockers = self.room.all_blockers()
+        for door in self.level_map.doors:
+            if not door.open and self.current_room in door.rooms:
+                blockers.append(door.rect)
+        return blockers
 
     def handle_events(self) -> None:
         for event in pygame.event.get():
@@ -96,7 +116,7 @@ class Game:
                 return
             if self.state == "title":
                 if event.type == pygame.KEYDOWN:
-                    self.state = "playing"
+                    self.start_level(1, fresh=True)
             elif self.state == "stats":
                 if event.type == pygame.KEYDOWN and (
                     event.key == pygame.K_e or event.key == pygame.K_ESCAPE
@@ -134,11 +154,15 @@ class Game:
         elif self.state == "shop":
             self.shop.update(dt)
 
-    def _update_clear(self, dt: float) -> None:
+    def _player_input(self) -> tuple[float, float]:
         keys = pygame.key.get_pressed()
-        dx = (keys[pygame.K_d] - keys[pygame.K_a]) * self.player.speed
-        dy = (keys[pygame.K_s] - keys[pygame.K_w]) * self.player.speed
-        self.player.move(dx, dy, self.room)
+        dx = (keys[pygame.K_RIGHT] - keys[pygame.K_LEFT]) * self.player.speed
+        dy = (keys[pygame.K_DOWN] - keys[pygame.K_UP]) * self.player.speed
+        return dx, dy
+
+    def _update_clear(self, dt: float) -> None:
+        dx, dy = self._player_input()
+        self.player.move(dx, dy, self.room.rect, self._room_blockers())
         self.player.update(dt)
         for coin in list(self.coin_items):
             if not coin.update(dt):
@@ -152,13 +176,21 @@ class Game:
             self.state = "shop"
 
     def _update_playing(self, dt: float) -> None:
-        keys = pygame.key.get_pressed()
-        dx = (keys[pygame.K_d] - keys[pygame.K_a]) * self.player.speed
-        dy = (keys[pygame.K_s] - keys[pygame.K_w]) * self.player.speed
-        self.player.move(dx, dy, self.room)
+        dx, dy = self._player_input()
+        self.player.move(dx, dy, self.room.rect, self._room_blockers())
         self.player.update(dt)
+        self.current_room = self.level_map.room_at(self.player.pos)
 
-        if keys[pygame.K_f] and self.player.try_fire():
+        room = self.room
+        if (
+            room.switch is not None
+            and not room.switch.active
+            and room.switch.rect.colliderect(self.player.rect)
+        ):
+            room.switch.active = True
+            room.lit = True
+
+        if pygame.key.get_pressed()[pygame.K_f] and self.player.try_fire():
             origin = pygame.Vector2(self.player.rect.center)
             direction = self.player.facing.copy()
             if direction.length_squared() == 0:
@@ -167,13 +199,30 @@ class Game:
 
         for bullet in list(self.bullets):
             alive = bullet.update(dt)
-            if alive and not bullet.rect.colliderect(self.room.rect):
+            if alive and not self.room.rect.colliderect(bullet.rect):
+                alive = False
+            if alive and bullet.rect.collidelist(self.room.all_blockers()) != -1:
                 alive = False
             if alive:
-                for zombie in self.zombies:
+                for door in self.level_map.doors:
+                    if not door.open and bullet.rect.colliderect(door.rect):
+                        alive = False
+                        break
+            if alive:
+                for box in self.room.boxes:
+                    if bullet.rect.colliderect(box.rect):
+                        if box.hit(self.player.attack):
+                            self.room.boxes.remove(box)
+                            coin = drop_coin(pygame.Vector2(box.rect.center))
+                            if coin:
+                                self.coin_items.append(coin)
+                        alive = False
+                        break
+            if alive:
+                for zombie in self.room.zombies:
                     if bullet.rect.colliderect(zombie.rect):
                         if zombie.take_damage(self.player.attack):
-                            self.zombies.remove(zombie)
+                            self.room.zombies.remove(zombie)
                             coin = drop_coin(pygame.Vector2(zombie.rect.center))
                             if coin:
                                 self.coin_items.append(coin)
@@ -182,8 +231,8 @@ class Game:
             if not alive:
                 self.bullets.remove(bullet)
 
-        for zombie in self.zombies:
-            zombie.update(dt, self.player.pos, self.room)
+        for zombie in self.room.zombies:
+            zombie.update(dt, self.player.pos, self.room, self.room.all_blockers())
             if zombie.hits_player(self.player.rect):
                 zombie.stun()
                 if self.player.take_hit(zombie.damage) and self.player.hp <= 0:
@@ -197,7 +246,10 @@ class Game:
                 self.coins += COIN_VALUE
                 self.coin_items.remove(coin)
 
-        if not self.zombies and self.state == "playing":
+        if self.room.cleared:
+            for door in self.level_map.doors_of(self.current_room):
+                door.open = True
+        if all(r.cleared for r in self.level_map.rooms):
             self.clear_timer = LEVEL_CLEAR_DELAY
             self.state = "level_clear"
 
@@ -220,12 +272,6 @@ class Game:
             self.shop.draw(self.screen)
         pygame.display.flip()
 
-    def _draw_level_clear(self) -> None:
-        text = self.font_title.render("敌人已清除！", True, COLORS["ok"])
-        self.screen.blit(text, ((WINDOW_WIDTH - text.get_width()) // 2, 260))
-        hint = self.font_hint.render("快捡金币，即将进入商店…", True, COLORS["info"])
-        self.screen.blit(hint, ((WINDOW_WIDTH - hint.get_width()) // 2, 340))
-
     def _draw_title(self) -> None:
         title = self.font_title.render("像素士兵 VS 僵尸", True, COLORS["title"])
         self.screen.blit(title, ((WINDOW_WIDTH - title.get_width()) // 2, 240))
@@ -233,16 +279,47 @@ class Game:
         self.screen.blit(hint, ((WINDOW_WIDTH - hint.get_width()) // 2, 330))
 
     def _draw_level(self) -> None:
+        cam_x, cam_y = self.camera
         for wall in self.room.walls:
-            pygame.draw.rect(self.screen, COLORS["wall"], wall)
-        self.player.draw(self.screen)
-        for zombie in self.zombies:
-            zombie.draw(self.screen)
+            pygame.draw.rect(self.screen, COLORS["wall"], wall.move(-cam_x, -cam_y))
+        for obstacle in self.room.obstacles:
+            rect = obstacle.rect.move(-cam_x, -cam_y)
+            pygame.draw.rect(self.screen, OBSTACLE_COLORS[obstacle.kind], rect)
+            pygame.draw.rect(self.screen, OBSTACLE_BORDER, rect, 2)
+        for box in self.room.boxes:
+            pygame.draw.rect(self.screen, BOX_COLOR, box.rect.move(-cam_x, -cam_y))
+        if self.room.switch is not None:
+            self.room.switch.draw(self.screen, cam_x, cam_y)
+        for door in self.level_map.doors_of(self.current_room):
+            door.draw(self.screen, cam_x, cam_y)
+        self.player.draw(self.screen, cam_x, cam_y)
+        for zombie in self.room.zombies:
+            zombie.draw(self.screen, cam_x, cam_y)
         for bullet in self.bullets:
-            bullet.draw(self.screen)
+            bullet.draw(self.screen, cam_x, cam_y)
         for coin in self.coin_items:
-            coin.draw(self.screen)
+            coin.draw(self.screen, cam_x, cam_y)
+        self._draw_vision()
         self._draw_hud()
+
+    def _draw_vision(self) -> None:
+        overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 255))
+        room_rect = self.room.rect
+        cam_x, cam_y = self.camera
+        screen_room = room_rect.move(-cam_x, -cam_y)
+        if self.room.lit:
+            overlay.fill((0, 0, 0, 0), screen_room)
+        player_center = self._to_screen(self.player.rect.center)
+        pygame.draw.circle(
+            overlay,
+            (0, 0, 0, 0),
+            (int(player_center[0]), int(player_center[1])),
+            VISION_RADIUS,
+        )
+        for wall in self.room.walls:
+            overlay.fill((0, 0, 0, 0), wall.move(-cam_x, -cam_y))
+        self.screen.blit(overlay, (0, 0))
 
     def _draw_hud(self) -> None:
         bar_w, bar_h = 240, 22
@@ -262,9 +339,13 @@ class Game:
             f"{self.player.hp}/{self.player.max_hp}", True, COLORS["hud"]
         )
         self.screen.blit(hp_text, (bar_x + bar_w + 16, bar_y - 4))
-        level_text = self.font_hud.render(f"关卡 {self.level}", True, COLORS["hud"])
+        room_text = self.font_hud.render(
+            f"关卡 {self.level}  房间 {self.current_room + 1}/{len(self.level_map.rooms)}",
+            True,
+            COLORS["hud"],
+        )
         self.screen.blit(
-            level_text, (WINDOW_WIDTH - level_text.get_width() - 30, bar_y - 4)
+            room_text, (WINDOW_WIDTH - room_text.get_width() - 30, bar_y - 4)
         )
 
     def _draw_paused(self) -> None:
@@ -315,6 +396,12 @@ class Game:
         self.screen.blit(text, ((WINDOW_WIDTH - text.get_width()) // 2, 240))
         hint = self.font_hint.render("按任意键重新挑战本关", True, COLORS["info"])
         self.screen.blit(hint, ((WINDOW_WIDTH - hint.get_width()) // 2, 330))
+
+    def _draw_level_clear(self) -> None:
+        text = self.font_title.render("敌人已清除！", True, COLORS["ok"])
+        self.screen.blit(text, ((WINDOW_WIDTH - text.get_width()) // 2, 260))
+        hint = self.font_hint.render("快捡金币，即将进入商店…", True, COLORS["info"])
+        self.screen.blit(hint, ((WINDOW_WIDTH - hint.get_width()) // 2, 340))
 
     def run(self) -> None:
         warn_if_no_cjk_font()
