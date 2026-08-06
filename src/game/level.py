@@ -1,30 +1,49 @@
 import random
+from collections import deque
+from collections.abc import Callable
 
 import pygame
 
 from .config import (
-    BOX_COLOR,
-    BOX_COUNT_RANGE,
+    BOX_EXTRA_RANGE,
     BOX_HP,
     BOX_SIZE,
-    BOX_SIZE_VARIATION,
-    OBSTACLE_BORDER,
-    OBSTACLE_COLORS,
-    OBSTACLE_COUNT_RANGE,
-    OBSTACLE_KINDS,
-    OBSTACLE_MARGIN,
-    OBSTACLE_SIZE_VARIATION,
-    OBSTACLE_SIZES,
+    DOOR_WIDTH,
+    PLAYER_SIZE,
     ROOM_COUNT_RANGE,
+    ROOM_GRID_HEIGHT,
+    ROOM_GRID_WIDTH,
     ROOM_HEIGHT,
     ROOM_TOP_OFFSET,
     ROOM_WIDTH,
     SWITCH_COLOR,
     SWITCH_COLOR_ACTIVE,
     SWITCH_SIZE,
+    TILE_SIZE,
     WALL_THICKNESS,
     WINDOW_HEIGHT,
-    ZOMBIE_SPAWN_MARGIN,
+    ZOMBIE_SPAWN_GAP,
+)
+from .room_templates import (
+    CRATE_CELLS,
+    ENEMY_CELLS,
+    PLAYER_SPAWN_CELL,
+    ROOM_TEMPLATES,
+    SWITCH_CELLS,
+    transform_cell,
+    transform_rect,
+)
+
+NORTH = 1
+EAST = 2
+SOUTH = 4
+WEST = 8
+
+DIRECTIONS = (
+    ((0, -1), NORTH, SOUTH),
+    ((1, 0), EAST, WEST),
+    ((0, 1), SOUTH, NORTH),
+    ((-1, 0), WEST, EAST),
 )
 
 
@@ -44,10 +63,6 @@ class Obstacle:
         self.rect = rect
         self.kind = kind
 
-    def draw(self, surface: pygame.Surface) -> None:
-        pygame.draw.rect(surface, OBSTACLE_COLORS[self.kind], self.rect)
-        pygame.draw.rect(surface, OBSTACLE_BORDER, self.rect, 2)
-
 
 class Box:
     def __init__(self, rect: pygame.Rect) -> None:
@@ -57,9 +72,6 @@ class Box:
     def hit(self, damage: int) -> bool:
         self.hp -= damage
         return self.hp <= 0
-
-    def draw(self, surface: pygame.Surface) -> None:
-        pygame.draw.rect(surface, BOX_COLOR, self.rect)
 
 
 class Switch:
@@ -76,27 +88,44 @@ class Switch:
 class Room:
     def __init__(
         self,
+        index: int,
+        coord: tuple[int, int],
         rect: pygame.Rect,
         walls: list[pygame.Rect],
         spawn: pygame.Vector2,
+        template_id: str,
+        enemy_cells: list[tuple[int, int]],
+        crate_cells: list[tuple[int, int]],
+        switch_cells: list[tuple[int, int]],
+        *,
+        is_boss: bool = False,
     ) -> None:
+        self.index = index
+        self.coord = coord
         self.rect = rect
         self.walls = walls
         self.spawn = spawn
+        self.template_id = template_id
+        self.enemy_cells = enemy_cells
+        self.crate_cells = crate_cells
+        self.switch_cells = switch_cells
         self.obstacles: list[Obstacle] = []
         self.boxes: list[Box] = []
         self.zombies = []
         self.switch: Switch | None = None
-        self.lit = False
+        self.lit = is_boss
+        self.is_boss = is_boss
+        self.boss_spawn = None
 
     @property
     def cleared(self) -> bool:
         return len(self.zombies) == 0
 
-    def all_blockers(self) -> list[pygame.Rect]:
-        return (
-            self.walls + [o.rect for o in self.obstacles] + [b.rect for b in self.boxes]
-        )
+    def terrain_blockers(self) -> list[pygame.Rect]:
+        return self.walls + [obstacle.rect for obstacle in self.obstacles]
+
+    def static_blockers(self) -> list[pygame.Rect]:
+        return self.terrain_blockers() + [box.rect for box in self.boxes]
 
     def clamp_rect(self, rect: pygame.Rect) -> pygame.Rect:
         rect.left = max(rect.left, self.rect.left)
@@ -105,157 +134,383 @@ class Room:
         rect.bottom = min(rect.bottom, self.rect.bottom)
         return rect
 
-    def random_position(
-        self,
-        margin: int = 30,
-        avoid: list[pygame.Rect] | None = None,
-        avoid_margin: int = 40,
-    ) -> pygame.Vector2:
-        avoid = avoid or []
-        for _ in range(100):
-            pos = pygame.Vector2(
-                random.randint(self.rect.left + margin, self.rect.right - margin),
-                random.randint(self.rect.top + margin, self.rect.bottom - margin),
-            )
-            rect = pygame.Rect(0, 0, 1, 1).move(pos)
-            if any(
-                rect.inflate(avoid_margin, avoid_margin).colliderect(r) for r in avoid
-            ):
-                continue
-            return pos
-        return pygame.Vector2(
-            (self.rect.left + self.rect.right) // 2,
-            (self.rect.top + self.rect.bottom) // 2,
-        )
-
 
 class Level:
-    def __init__(self, level_number: int) -> None:
+    def __init__(
+        self,
+        level_number: int,
+        *,
+        boss_only: bool = False,
+        rng: random.Random | None = None,
+    ) -> None:
         self.level_number = level_number
+        self.rng = rng or random.Random()
         self.rooms: list[Room] = []
         self.doors: list[Door] = []
-        self._build()
+        if boss_only:
+            self._build_boss_room()
+        else:
+            self._build()
+
+    def _build_boss_room(self) -> None:
+        top = (WINDOW_HEIGHT - ROOM_HEIGHT) // 2 + ROOM_TOP_OFFSET
+        rect = pygame.Rect(0, top, ROOM_WIDTH, ROOM_HEIGHT)
+        walls = self._build_walls(rect, 0)
+        spawn = self._spawn_position(rect)
+        self.rooms.append(
+            Room(
+                0,
+                (0, 0),
+                rect,
+                walls,
+                spawn,
+                "BOSS_PLACEHOLDER",
+                [],
+                [],
+                [],
+                is_boss=True,
+            )
+        )
 
     def _build(self) -> None:
-        room_count = random.randint(*ROOM_COUNT_RANGE)
+        low, high = ROOM_COUNT_RANGE[self.level_number]
+        coords = self._generate_path(self.rng.randint(low, high))
+        coord_to_index = {coord: index for index, coord in enumerate(coords)}
+        masks = [0] * len(coords)
+
+        for index, coord in enumerate(coords):
+            x, y = coord
+            for (dx, dy), own_bit, _ in DIRECTIONS:
+                if (x + dx, y + dy) in coord_to_index:
+                    masks[index] |= own_bit
+
         top = (WINDOW_HEIGHT - ROOM_HEIGHT) // 2 + ROOM_TOP_OFFSET
-        t = WALL_THICKNESS
-
-        rects: list[pygame.Rect] = []
-        x = 0
-        for _ in range(room_count):
-            rects.append(pygame.Rect(x, top, ROOM_WIDTH, ROOM_HEIGHT))
-            x += ROOM_WIDTH
-
-        for i in range(room_count - 1):
-            rect = rects[i]
-            door_rect = pygame.Rect(rect.right - t, rect.centery - 26, 2 * t, 52)
-            self.doors.append(Door(door_rect, (i, i + 1)))
-
-        for i, rect in enumerate(rects):
-            walls = [
-                pygame.Rect(rect.left - t, rect.top - t, rect.width + 2 * t, t),
-                pygame.Rect(rect.left - t, rect.bottom, rect.width + 2 * t, t),
-            ]
-            if i == 0:
-                walls.append(
-                    pygame.Rect(rect.left - t, rect.top, t, rect.height + 2 * t)
+        for index, ((grid_x, grid_y), mask) in enumerate(
+            zip(coords, masks, strict=True)
+        ):
+            rect = pygame.Rect(
+                grid_x * ROOM_WIDTH,
+                top + grid_y * ROOM_HEIGHT,
+                ROOM_WIDTH,
+                ROOM_HEIGHT,
+            )
+            template, transform, solids, switch_cell = self._choose_layout(mask)
+            room = Room(
+                index,
+                (grid_x, grid_y),
+                rect,
+                self._build_walls(rect, mask),
+                self._spawn_position(rect),
+                template.template_id,
+                [transform_cell(cell, transform) for cell in ENEMY_CELLS],
+                [transform_cell(cell, transform) for cell in CRATE_CELLS],
+                [switch_cell],
+            )
+            for cell_x, cell_y, width, height, kind in solids:
+                obstacle_rect = pygame.Rect(
+                    rect.left + cell_x * TILE_SIZE,
+                    rect.top + cell_y * TILE_SIZE,
+                    width * TILE_SIZE,
+                    height * TILE_SIZE,
                 )
-            else:
-                door_top = rect.centery - 26
-                door_bottom = rect.centery + 26
-                walls.append(
-                    pygame.Rect(rect.left - t, rect.top, t, door_top - rect.top)
-                )
-                walls.append(
-                    pygame.Rect(
-                        rect.left - t, door_bottom, t, rect.bottom - door_bottom
-                    )
-                )
-            if i == room_count - 1:
-                walls.append(pygame.Rect(rect.right, rect.top, t, rect.height + 2 * t))
-            else:
-                door_top = rect.centery - 26
-                door_bottom = rect.centery + 26
-                walls.append(pygame.Rect(rect.right, rect.top, t, door_top - rect.top))
-                walls.append(
-                    pygame.Rect(rect.right, door_bottom, t, rect.bottom - door_bottom)
-                )
-            spawn = pygame.Vector2(rect.centerx, rect.centery)
-            self.rooms.append(Room(rect, walls, spawn))
+                room.obstacles.append(Obstacle(obstacle_rect, kind))
+            self.rooms.append(room)
 
-        self._place_obstacles()
+        for index in range(len(coords) - 1):
+            self.doors.append(self._make_door(index, index + 1))
+
         self._place_boxes()
         self._place_switches()
 
-    def _vary_size(self, base: tuple[int, int], variation: float) -> tuple[int, int]:
-        w, h = base
-        return (
-            max(16, int(w * random.uniform(1 - variation, 1 + variation))),
-            max(16, int(h * random.uniform(1 - variation, 1 + variation))),
+    def _generate_path(self, count: int) -> list[tuple[int, int]]:
+        for _ in range(50):
+            coords = [(0, 0)]
+            while len(coords) < count:
+                x, y = coords[-1]
+                candidates: list[tuple[int, int]] = []
+                for (dx, dy), _, _ in DIRECTIONS:
+                    candidate = (x + dx, y + dy)
+                    if candidate in coords:
+                        continue
+                    adjacent = sum(
+                        (candidate[0] + nx, candidate[1] + ny) in coords
+                        for (nx, ny), _, _ in DIRECTIONS
+                    )
+                    if adjacent == 1:
+                        candidates.append(candidate)
+                if not candidates:
+                    break
+                coords.append(self.rng.choice(candidates))
+            if len(coords) == count:
+                return coords
+        raise RuntimeError("无法生成连通房间路径")
+
+    def _choose_layout(self, door_mask: int):
+        choices = [
+            (template, transform)
+            for template in ROOM_TEMPLATES
+            for transform in ("identity", "hflip", "vflip", "rot180")
+        ]
+        self.rng.shuffle(choices)
+        for template, transform in choices:
+            solids = [transform_rect(rect, transform) for rect in template.solids]
+            switch_cells = [transform_cell(cell, transform) for cell in SWITCH_CELLS]
+            self.rng.shuffle(switch_cells)
+            for switch_cell in switch_cells:
+                if self._layout_is_valid(solids, door_mask, switch_cell):
+                    return template, transform, solids, switch_cell
+        raise RuntimeError("没有符合门掩码的房间模板")
+
+    def _layout_is_valid(
+        self,
+        solids: list[tuple[int, int, int, int, str]],
+        door_mask: int,
+        switch_cell: tuple[int, int],
+    ) -> bool:
+        blocked = {
+            (cell_x, cell_y)
+            for x, y, width, height, _ in solids
+            for cell_x in range(x, x + width)
+            for cell_y in range(y, y + height)
+        }
+        if PLAYER_SPAWN_CELL in blocked or switch_cell in blocked:
+            return False
+
+        targets = [switch_cell]
+        if door_mask & NORTH:
+            targets.append((16, 1))
+        if door_mask & EAST:
+            targets.append((30, 9))
+        if door_mask & SOUTH:
+            targets.append((16, 16))
+        if door_mask & WEST:
+            targets.append((1, 9))
+
+        reachable = {PLAYER_SPAWN_CELL}
+        queue = deque([PLAYER_SPAWN_CELL])
+        while queue:
+            x, y = queue.popleft()
+            for (dx, dy), _, _ in DIRECTIONS:
+                neighbor = (x + dx, y + dy)
+                if not (1 <= neighbor[0] < 31 and 1 <= neighbor[1] < 17):
+                    continue
+                if neighbor in blocked or neighbor in reachable:
+                    continue
+                reachable.add(neighbor)
+                queue.append(neighbor)
+        return all(target in reachable for target in targets)
+
+    def _spawn_position(self, rect: pygame.Rect) -> pygame.Vector2:
+        cell_x, cell_y = PLAYER_SPAWN_CELL
+        return pygame.Vector2(
+            rect.left + cell_x * TILE_SIZE - PLAYER_SIZE // 2,
+            rect.top + cell_y * TILE_SIZE - PLAYER_SIZE // 2,
         )
 
-    def _place_obstacles(self) -> None:
-        low, high = OBSTACLE_COUNT_RANGE[self.level_number]
-        total = random.randint(low, high)
-        if not self.rooms:
-            return
-        per_room = total // len(self.rooms)
-        remainder = total % len(self.rooms)
-        for i, room in enumerate(self.rooms):
-            count = per_room + (1 if i < remainder else 0)
-            avoid = [pygame.Rect(0, 0, 1, 1).move(room.spawn)] + [
-                d.rect for d in self.doors
-            ]
-            for _ in range(count):
-                kind = random.choice(OBSTACLE_KINDS)
-                w, h = self._vary_size(OBSTACLE_SIZES[kind], OBSTACLE_SIZE_VARIATION)
-                pos = room.random_position(OBSTACLE_MARGIN, avoid, 50)
-                rect = pygame.Rect(0, 0, w, h).move(pos)
-                if rect.left < room.rect.left or rect.right > room.rect.right:
-                    continue
-                if rect.top < room.rect.top or rect.bottom > room.rect.bottom:
-                    continue
-                room.obstacles.append(Obstacle(rect, kind))
-                avoid.append(rect)
+    def _build_walls(self, rect: pygame.Rect, door_mask: int) -> list[pygame.Rect]:
+        walls: list[pygame.Rect] = []
+        half_door = DOOR_WIDTH // 2
+        t = WALL_THICKNESS
+
+        def horizontal(y: int, has_door: bool) -> None:
+            if not has_door:
+                walls.append(pygame.Rect(rect.left - t, y, rect.width + 2 * t, t))
+                return
+            gap_left = rect.centerx - half_door
+            gap_right = rect.centerx + half_door
+            walls.append(pygame.Rect(rect.left - t, y, gap_left - rect.left + t, t))
+            walls.append(pygame.Rect(gap_right, y, rect.right + t - gap_right, t))
+
+        def vertical(x: int, has_door: bool) -> None:
+            if not has_door:
+                walls.append(pygame.Rect(x, rect.top, t, rect.height))
+                return
+            gap_top = rect.centery - half_door
+            gap_bottom = rect.centery + half_door
+            walls.append(pygame.Rect(x, rect.top, t, gap_top - rect.top))
+            walls.append(pygame.Rect(x, gap_bottom, t, rect.bottom - gap_bottom))
+
+        horizontal(rect.top - t, bool(door_mask & NORTH))
+        horizontal(rect.bottom, bool(door_mask & SOUTH))
+        vertical(rect.left - t, bool(door_mask & WEST))
+        vertical(rect.right, bool(door_mask & EAST))
+        return walls
+
+    def _make_door(self, first: int, second: int) -> Door:
+        first_room = self.rooms[first]
+        second_room = self.rooms[second]
+        dx = second_room.coord[0] - first_room.coord[0]
+        dy = second_room.coord[1] - first_room.coord[1]
+        t = WALL_THICKNESS
+        if dx == 1:
+            rect = pygame.Rect(
+                first_room.rect.right - t,
+                first_room.rect.centery - DOOR_WIDTH // 2,
+                2 * t,
+                DOOR_WIDTH,
+            )
+        elif dx == -1:
+            rect = pygame.Rect(
+                first_room.rect.left - t,
+                first_room.rect.centery - DOOR_WIDTH // 2,
+                2 * t,
+                DOOR_WIDTH,
+            )
+        elif dy == 1:
+            rect = pygame.Rect(
+                first_room.rect.centerx - DOOR_WIDTH // 2,
+                first_room.rect.bottom - t,
+                DOOR_WIDTH,
+                2 * t,
+            )
+        else:
+            rect = pygame.Rect(
+                first_room.rect.centerx - DOOR_WIDTH // 2,
+                first_room.rect.top - t,
+                DOOR_WIDTH,
+                2 * t,
+            )
+        return Door(rect, (first, second))
+
+    def _cell_rect(self, room: Room, cell: tuple[int, int], size: int) -> pygame.Rect:
+        x, y = cell
+        return pygame.Rect(
+            room.rect.left + x * TILE_SIZE + (TILE_SIZE - size) // 2,
+            room.rect.top + y * TILE_SIZE + (TILE_SIZE - size) // 2,
+            size,
+            size,
+        )
 
     def _place_boxes(self) -> None:
-        low, high = BOX_COUNT_RANGE[self.level_number]
-        for room in self.rooms:
-            count = random.randint(low, high)
-            avoid = [o.rect for o in room.obstacles] + [d.rect for d in self.doors]
-            for _ in range(count):
-                w, h = self._vary_size((BOX_SIZE, BOX_SIZE), BOX_SIZE_VARIATION)
-                pos = room.random_position(50, avoid, 44)
-                room.boxes.append(Box(pygame.Rect(0, 0, w, h).move(pos)))
+        low, high = BOX_EXTRA_RANGE[self.level_number]
+        counts = [1] * len(self.rooms)
+        for _ in range(self.rng.randint(low, high)):
+            counts[self.rng.randrange(len(counts))] += 1
+
+        for room, count in zip(self.rooms, counts, strict=True):
+            cells = room.crate_cells.copy()
+            self.rng.shuffle(cells)
+            for cell in cells:
+                if len(room.boxes) >= count:
+                    break
+                rect = self._cell_rect(room, cell, BOX_SIZE)
+                if rect.collidelist(room.static_blockers()) != -1:
+                    continue
+                room.boxes.append(Box(rect))
+            if len(room.boxes) != count:
+                raise RuntimeError("房间没有足够的箱子候选点")
 
     def _place_switches(self) -> None:
         for room in self.rooms:
-            avoid = (
-                [pygame.Rect(0, 0, 1, 1).move(room.spawn)]
-                + [o.rect for o in room.obstacles]
-                + [b.rect for b in room.boxes]
-            )
-            pos = room.random_position(70, avoid, 50)
-            room.switch = Switch(pygame.Rect(0, 0, SWITCH_SIZE, SWITCH_SIZE).move(pos))
+            for cell in room.switch_cells:
+                rect = self._cell_rect(room, cell, SWITCH_SIZE)
+                if rect.collidelist(room.static_blockers()) == -1:
+                    room.switch = Switch(rect)
+                    break
+            if room.switch is None:
+                raise RuntimeError("房间没有可用的照明机关位置")
 
-    def spawn_zombies(self, count: int, create) -> None:
+    def spawn_zombies(self, count: int, create: Callable) -> None:
         if not self.rooms:
             return
-        per_room = count // len(self.rooms)
-        remainder = count % len(self.rooms)
-        for i, room in enumerate(self.rooms):
-            n = per_room + (1 if i < remainder else 0)
-            avoid = [o.rect for o in room.obstacles] + [b.rect for b in room.boxes]
-            for _ in range(n):
-                pos = room.random_position(ZOMBIE_SPAWN_MARGIN, avoid, 50)
-                room.zombies.append(create(pos))
+        if self.level_number == 1 and len(self.rooms) == 2:
+            counts = [self.rng.randint(5, 6), self.rng.randint(5, 6)]
+        elif self.level_number == 1:
+            counts = [4, 4, 4]
+        else:
+            counts = [count // len(self.rooms)] * len(self.rooms)
+            room_order = list(range(len(self.rooms)))
+            self.rng.shuffle(room_order)
+            for index in room_order[: count % len(self.rooms)]:
+                counts[index] += 1
+
+        for room, room_count in zip(self.rooms, counts, strict=True):
+            candidates = room.enemy_cells.copy()
+            self.rng.shuffle(candidates)
+            attempts = 0
+            while len(room.zombies) < room_count and attempts < 200:
+                attempts += 1
+                if candidates:
+                    cell = candidates.pop()
+                else:
+                    cell = (
+                        self.rng.randint(3, ROOM_GRID_WIDTH - 4),
+                        self.rng.randint(3, ROOM_GRID_HEIGHT - 4),
+                    )
+                zombie = create(pygame.Vector2())
+                zombie.pos.update(
+                    room.rect.left
+                    + cell[0] * TILE_SIZE
+                    + (TILE_SIZE - zombie.size) / 2,
+                    room.rect.top + cell[1] * TILE_SIZE + (TILE_SIZE - zombie.size) / 2,
+                )
+                if zombie.rect.collidelist(room.static_blockers()) != -1:
+                    continue
+                if (
+                    pygame.Vector2(zombie.rect.center).distance_to(
+                        pygame.Vector2(room.spawn) + pygame.Vector2(PLAYER_SIZE / 2)
+                    )
+                    < 6 * TILE_SIZE
+                ):
+                    continue
+                if any(
+                    pygame.Vector2(zombie.rect.center).distance_to(other.rect.center)
+                    < zombie.separation_radius
+                    + other.separation_radius
+                    + ZOMBIE_SPAWN_GAP
+                    for other in room.zombies
+                ):
+                    continue
+                room.zombies.append(zombie)
+            if len(room.zombies) != room_count:
+                raise RuntimeError("房间没有足够的敌人出生点")
 
     def doors_of(self, room_index: int) -> list[Door]:
-        return [d for d in self.doors if room_index in d.rooms]
+        return [door for door in self.doors if room_index in door.rooms]
 
-    def room_at(self, point: pygame.Vector2) -> int:
-        for i, room in enumerate(self.rooms):
-            if room.rect.collidepoint(point):
-                return i
-        return 0
+    def blockers_for(self, room_index: int) -> list[pygame.Rect]:
+        room = self.rooms[room_index]
+        closed_doors = [
+            door.rect for door in self.doors_of(room_index) if not door.open
+        ]
+        return room.static_blockers() + closed_doors
+
+    def projectile_blockers_for(self, room_index: int) -> list[pygame.Rect]:
+        room = self.rooms[room_index]
+        closed_doors = [
+            door.rect for door in self.doors_of(room_index) if not door.open
+        ]
+        return room.terrain_blockers() + closed_doors
+
+    def update_doors(self, current_room: int) -> None:
+        for door in self.doors_of(current_room):
+            door.open = self.rooms[current_room].cleared
+
+    def room_at(self, point: tuple[float, float], current_room: int) -> int:
+        for room in self.rooms:
+            if room.index != current_room and room.rect.collidepoint(point):
+                return room.index
+        return current_room
+
+    def place_inside_room(
+        self,
+        position: pygame.Vector2,
+        player_size: int,
+        old_room: int,
+        new_room: int,
+    ) -> pygame.Vector2:
+        old = self.rooms[old_room]
+        new = self.rooms[new_room]
+        result = pygame.Vector2(position)
+        padding = WALL_THICKNESS + 4
+        dx = new.coord[0] - old.coord[0]
+        dy = new.coord[1] - old.coord[1]
+        if dx == 1:
+            result.x = new.rect.left + padding
+        elif dx == -1:
+            result.x = new.rect.right - padding - player_size
+        elif dy == 1:
+            result.y = new.rect.top + padding
+        elif dy == -1:
+            result.y = new.rect.bottom - padding - player_size
+        return result

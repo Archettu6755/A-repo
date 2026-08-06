@@ -10,7 +10,13 @@ CARD_START_X = (WINDOW_WIDTH - CARD_WIDTH) // 2
 
 
 class ShopScreen:
-    def __init__(self, level: int, coins: int, player) -> None:
+    def __init__(
+        self,
+        level: int,
+        coins: int,
+        player,
+        bought_count: dict[str, int] | None = None,
+    ) -> None:
         self.level = level
         self.coins = coins
         self.player = player
@@ -18,8 +24,10 @@ class ShopScreen:
         self.error_message = ""
         self.error_timer = 0.0
         self.items = SHOP_ITEMS
-        self.bought_count: dict[str, int] = {item["key"]: 0 for item in self.items}
-        self.exit_label = "返回标题" if level >= 2 else "进入下一关"
+        self.bought_count = bought_count if bought_count is not None else {}
+        for item in self.items:
+            self.bought_count.setdefault(item["key"], 0)
+        self.exit_label = "进入 Boss 房" if level == 3 else "进入下一关"
         self.done = False
         self.title_font = load_font(48, bold=True)
         self.item_font = load_font(26)
@@ -36,7 +44,7 @@ class ShopScreen:
         if key == "max_hp":
             return self.player.max_hp >= item.get("max_value", 99)
         if key == "fire_speed":
-            return self.player.cooldown <= item.get("min_value", 0.1)
+            return self.player.cooldown <= item.get("min_value", 0.1) + 1e-9
         if key == "move_speed":
             return self.player.speed >= item.get("max_value", 99)
         return False
@@ -62,7 +70,11 @@ class ShopScreen:
             self.player.max_hp += 1
             self.player.hp += 1
         elif key == "fire_speed":
-            self.player.cooldown = max(0.1, self.player.cooldown - 0.05)
+            minimum = item.get("min_value", 0.1)
+            self.player.cooldown = max(
+                minimum,
+                round(self.player.cooldown - 0.05, 2),
+            )
         elif key == "move_speed":
             self.player.speed += 0.5
         elif key == "heal":
@@ -167,7 +179,7 @@ class ShopScreen:
             len(self.items),
             self.exit_label,
             None,
-            "确认后进入下一关" if self.level < 2 else "确认后返回标题",
+            "确认后进入 Boss 房" if self.level == 3 else "确认后进入下一关",
             selected=self.selected == len(self.items),
             can_afford=True,
         )
