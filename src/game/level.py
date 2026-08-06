@@ -17,6 +17,7 @@ from .config import (
     OBSTACLE_SIZES,
     ROOM_COUNT_RANGE,
     ROOM_HEIGHT,
+    ROOM_TOP_OFFSET,
     ROOM_WIDTH,
     SWITCH_COLOR,
     SWITCH_COLOR_ACTIVE,
@@ -31,7 +32,7 @@ class Door:
     def __init__(self, rect: pygame.Rect, rooms: tuple[int, int]) -> None:
         self.rect = rect
         self.rooms = rooms
-        self.open = False
+        self.open = True
 
     def draw(self, surface: pygame.Surface, cam_x: float = 0, cam_y: float = 0) -> None:
         color = (60, 160, 80) if self.open else (110, 80, 60)
@@ -137,7 +138,7 @@ class Level:
 
     def _build(self) -> None:
         room_count = random.randint(*ROOM_COUNT_RANGE)
-        top = (WINDOW_HEIGHT - ROOM_HEIGHT) // 2
+        top = (WINDOW_HEIGHT - ROOM_HEIGHT) // 2 + ROOM_TOP_OFFSET
         t = WALL_THICKNESS
 
         rects: list[pygame.Rect] = []
@@ -146,20 +147,42 @@ class Level:
             rects.append(pygame.Rect(x, top, ROOM_WIDTH, ROOM_HEIGHT))
             x += ROOM_WIDTH
 
+        for i in range(room_count - 1):
+            rect = rects[i]
+            door_rect = pygame.Rect(rect.right - t, rect.centery - 26, 2 * t, 52)
+            self.doors.append(Door(door_rect, (i, i + 1)))
+
         for i, rect in enumerate(rects):
             walls = [
                 pygame.Rect(rect.left - t, rect.top - t, rect.width + 2 * t, t),
                 pygame.Rect(rect.left - t, rect.bottom, rect.width + 2 * t, t),
-                pygame.Rect(rect.left - t, rect.top, t, rect.height + 2 * t),
-                pygame.Rect(rect.right, rect.top, t, rect.height + 2 * t),
             ]
+            if i == 0:
+                walls.append(
+                    pygame.Rect(rect.left - t, rect.top, t, rect.height + 2 * t)
+                )
+            else:
+                door_top = rect.centery - 26
+                door_bottom = rect.centery + 26
+                walls.append(
+                    pygame.Rect(rect.left - t, rect.top, t, door_top - rect.top)
+                )
+                walls.append(
+                    pygame.Rect(
+                        rect.left - t, door_bottom, t, rect.bottom - door_bottom
+                    )
+                )
+            if i == room_count - 1:
+                walls.append(pygame.Rect(rect.right, rect.top, t, rect.height + 2 * t))
+            else:
+                door_top = rect.centery - 26
+                door_bottom = rect.centery + 26
+                walls.append(pygame.Rect(rect.right, rect.top, t, door_top - rect.top))
+                walls.append(
+                    pygame.Rect(rect.right, door_bottom, t, rect.bottom - door_bottom)
+                )
             spawn = pygame.Vector2(rect.centerx, rect.centery)
             self.rooms.append(Room(rect, walls, spawn))
-
-        for i in range(room_count - 1):
-            rect = rects[i]
-            door_rect = pygame.Rect(rect.right - 20, rect.centery - 26, 40, 52)
-            self.doors.append(Door(door_rect, (i, i + 1)))
 
         self._place_obstacles()
         self._place_boxes()

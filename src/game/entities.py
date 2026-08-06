@@ -47,26 +47,18 @@ class Player:
     def rect(self) -> pygame.Rect:
         return pygame.Rect(0, 0, self.size, self.size).move(self.pos.x, self.pos.y)
 
-    def move(
-        self, dx: float, dy: float, bounds: pygame.Rect, blockers: list[pygame.Rect]
-    ) -> None:
+    def move(self, dx: float, dy: float, blockers: list[pygame.Rect]) -> None:
         if dx != 0 or dy != 0:
             self.facing = pygame.Vector2(dx, dy)
             if self.facing.length_squared() > 0:
                 self.facing.normalize_ip()
         if dx != 0:
             self.pos.x += dx
-            rect = self.rect
-            bounds.clamp_ip(rect)
-            self.pos.x = rect.x
-            if rect.collidelist(blockers) != -1:
+            if self.rect.collidelist(blockers) != -1:
                 self.pos.x -= dx
         if dy != 0:
             self.pos.y += dy
-            rect = self.rect
-            bounds.clamp_ip(rect)
-            self.pos.y = rect.y
-            if rect.collidelist(blockers) != -1:
+            if self.rect.collidelist(blockers) != -1:
                 self.pos.y -= dy
 
     def try_fire(self) -> bool:

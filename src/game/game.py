@@ -103,11 +103,7 @@ class Game:
         self.level_map.spawn_zombies(count, create)
 
     def _room_blockers(self) -> list[pygame.Rect]:
-        blockers = self.room.all_blockers()
-        for door in self.level_map.doors:
-            if not door.open and self.current_room in door.rooms:
-                blockers.append(door.rect)
-        return blockers
+        return self.room.all_blockers()
 
     def handle_events(self) -> None:
         for event in pygame.event.get():
@@ -162,7 +158,7 @@ class Game:
 
     def _update_clear(self, dt: float) -> None:
         dx, dy = self._player_input()
-        self.player.move(dx, dy, self.room.rect, self._room_blockers())
+        self.player.move(dx, dy, self._room_blockers())
         self.player.update(dt)
         for coin in list(self.coin_items):
             if not coin.update(dt):
@@ -177,7 +173,7 @@ class Game:
 
     def _update_playing(self, dt: float) -> None:
         dx, dy = self._player_input()
-        self.player.move(dx, dy, self.room.rect, self._room_blockers())
+        self.player.move(dx, dy, self._room_blockers())
         self.player.update(dt)
         self.current_room = self.level_map.room_at(self.player.pos)
 
@@ -203,11 +199,6 @@ class Game:
                 alive = False
             if alive and bullet.rect.collidelist(self.room.all_blockers()) != -1:
                 alive = False
-            if alive:
-                for door in self.level_map.doors:
-                    if not door.open and bullet.rect.colliderect(door.rect):
-                        alive = False
-                        break
             if alive:
                 for box in self.room.boxes:
                     if bullet.rect.colliderect(box.rect):
@@ -246,9 +237,6 @@ class Game:
                 self.coins += COIN_VALUE
                 self.coin_items.remove(coin)
 
-        if self.room.cleared:
-            for door in self.level_map.doors_of(self.current_room):
-                door.open = True
         if all(r.cleared for r in self.level_map.rooms):
             self.clear_timer = LEVEL_CLEAR_DELAY
             self.state = "level_clear"
