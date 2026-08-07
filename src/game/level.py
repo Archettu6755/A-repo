@@ -25,6 +25,7 @@ from .config import (
     ZOMBIE_SPAWN_GAP,
 )
 from .room_templates import (
+    BOSS_EXIT_SWITCH_CELL,
     CRATE_CELLS,
     ENEMY_CELLS,
     PLAYER_SPAWN_CELL,
@@ -167,10 +168,11 @@ class Level:
                 "BOSS_PLACEHOLDER",
                 [],
                 [],
-                [],
+                [BOSS_EXIT_SWITCH_CELL],
                 is_boss=True,
             )
         )
+        self._place_switches()
 
     def _build(self) -> None:
         low, high = ROOM_COUNT_RANGE[self.level_number]
@@ -408,21 +410,17 @@ class Level:
                     room.switch = Switch(rect)
                     break
             if room.switch is None:
-                raise RuntimeError("房间没有可用的照明机关位置")
+                raise RuntimeError("房间没有可用的机关位置")
 
-    def spawn_zombies(self, count: int, create: Callable) -> None:
+    def spawn_zombies(
+        self,
+        count_range: tuple[int, int],
+        create: Callable,
+    ) -> None:
         if not self.rooms:
             return
-        if self.level_number == 1 and len(self.rooms) == 2:
-            counts = [self.rng.randint(5, 6), self.rng.randint(5, 6)]
-        elif self.level_number == 1:
-            counts = [4, 4, 4]
-        else:
-            counts = [count // len(self.rooms)] * len(self.rooms)
-            room_order = list(range(len(self.rooms)))
-            self.rng.shuffle(room_order)
-            for index in room_order[: count % len(self.rooms)]:
-                counts[index] += 1
+        low, high = count_range
+        counts = [self.rng.randint(low, high) for _ in self.rooms]
 
         for room, room_count in zip(self.rooms, counts, strict=True):
             candidates = room.enemy_cells.copy()

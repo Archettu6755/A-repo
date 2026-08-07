@@ -8,6 +8,9 @@ from game.entities import Zombie
 
 class ZombieBehaviorTests(unittest.TestCase):
     def test_confirmed_base_stats(self) -> None:
+        self.assertEqual(ZOMBIE_TYPES["normal"]["hp"], 5)
+        self.assertEqual(ZOMBIE_TYPES["fast"]["hp"], 3)
+        self.assertEqual(ZOMBIE_TYPES["heavy"]["hp"], 8)
         self.assertEqual(ZOMBIE_TYPES["normal"]["speed"], 1.2)
         self.assertEqual(ZOMBIE_TYPES["fast"]["speed"], 2.0)
         self.assertEqual(ZOMBIE_TYPES["heavy"]["speed"], 0.9)

@@ -4,9 +4,14 @@ import pygame
 
 from .config import (
     BOX_COLOR,
+    BULLET_SIZE,
     COIN_VALUE,
     COLORS,
     FPS,
+    HEART_GAP,
+    HEART_ORIGIN,
+    HEART_SIZE,
+    HEARTS_PER_ROW,
     LEVEL_CLEAR_DELAY,
     OBSTACLE_BORDER,
     OBSTACLE_COLORS,
@@ -14,13 +19,14 @@ from .config import (
     PLAYER_FIRE_COOLDOWN,
     PLAYER_MAX_HP,
     PLAYER_SPEED,
+    ROOM_SCREEN_TOP,
     VISION_RADIUS,
     WINDOW_HEIGHT,
     WINDOW_WIDTH,
-    ZOMBIE_COUNT_RANGE,
+    ZOMBIE_COUNT_PER_ROOM_RANGE,
     ZOMBIE_TYPE_WEIGHTS,
 )
-from .controls import Controls
+from .controls import Controls, event_key
 from .entities import Bullet, Coin, Player, Zombie, drop_coin
 from .fonts import load_font, warn_if_no_cjk_font
 from .level import Level
@@ -32,6 +38,7 @@ class Game:
     def __init__(self) -> None:
         pygame.init()
         self.screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
+        pygame.key.stop_text_input()
         pygame.display.set_caption("像素士兵 VS 僵尸")
         pygame.mouse.set_visible(False)
         self.clock = pygame.time.Clock()
@@ -83,6 +90,7 @@ class Game:
 
     def start_boss_room(self) -> None:
         self.controls.clear()
+        self.shop = None
         self.level_map = Level(3, boss_only=True)
         self.current_room = 0
         self.player.pos = self.room.spawn.copy()
@@ -99,7 +107,7 @@ class Game:
         room_rect = self.room.rect
         return (
             room_rect.centerx - WINDOW_WIDTH // 2,
-            room_rect.centery - WINDOW_HEIGHT // 2,
+            room_rect.top - ROOM_SCREEN_TOP,
         )
 
     def _to_screen(self, pos: tuple[float, float]) -> tuple[float, float]:
@@ -107,8 +115,7 @@ class Game:
         return pos[0] - cam_x, pos[1] - cam_y
 
     def _spawn_zombies(self) -> None:
-        low, high = ZOMBIE_COUNT_RANGE[self.level]
-        count = random.randint(low, high)
+        count_range = ZOMBIE_COUNT_PER_ROOM_RANGE[self.level]
         weights = ZOMBIE_TYPE_WEIGHTS[self.level]
 
         def create(pos: pygame.Vector2) -> Zombie:
@@ -119,7 +126,7 @@ class Game:
             )[0]
             return Zombie(kind, pos)
 
-        self.level_map.spawn_zombies(count, create)
+        self.level_map.spawn_zombies(count_range, create)
 
     def _room_blockers(self) -> list[pygame.Rect]:
         return self.level_map.blockers_for(self.current_room)
@@ -139,11 +146,12 @@ class Game:
             if event.type == pygame.QUIT:
                 self.running = False
                 return
+            key = event_key(event) if event.type == pygame.KEYDOWN else None
             if self.state == "title":
                 if event.type == pygame.KEYDOWN:
                     self.start_level(1, fresh=True)
             elif self.state == "stats":
-                if event.type == pygame.KEYDOWN and event.key in (
+                if event.type == pygame.KEYDOWN and key in (
                     pygame.K_e,
                     pygame.K_ESCAPE,
                 ):
@@ -157,21 +165,26 @@ class Game:
                     self.start_level(self.level, fresh=False)
             elif self.state == "shop":
                 self._handle_shop_event(event)
+            elif self.state == "coming_soon":
+                if event.type == pygame.KEYDOWN:
+                    self.controls.clear()
+                    self.state = "title"
             elif self.state in ("playing", "boss_room"):
-                if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                if event.type == pygame.KEYDOWN and key == pygame.K_ESCAPE:
                     self._pause()
-                elif event.type == pygame.KEYDOWN and event.key == pygame.K_e:
+                elif event.type == pygame.KEYDOWN and key == pygame.K_e:
                     self.stats_from = self.state
                     self.state = "stats"
 
     def _handle_pause_event(self, event: pygame.event.Event) -> None:
         if event.type != pygame.KEYDOWN:
             return
-        if event.key == pygame.K_ESCAPE:
+        key = event_key(event)
+        if key == pygame.K_ESCAPE:
             self._resume()
-        elif event.key in (pygame.K_UP, pygame.K_DOWN):
+        elif key in (pygame.K_UP, pygame.K_DOWN):
             self.paused_selection = 1 - self.paused_selection
-        elif event.key == pygame.K_f:
+        elif key == pygame.K_f:
             if self.paused_selection == 0:
                 self._resume()
             else:
@@ -256,6 +269,13 @@ class Game:
         dx, dy = self._player_input()
         self.player.move(dx, dy, self._room_blockers())
         self.player.update(dt)
+        switch = self.room.switch
+        if switch is not None and switch.rect.colliderect(self.player.rect):
+            switch.active = True
+            self.controls.clear()
+            self.bullets.clear()
+            self.state = "coming_soon"
+            return
         self._try_fire()
         self._update_projectiles(dt, can_hit_enemies=False)
 
@@ -289,7 +309,12 @@ class Game:
         direction = self.player.facing.copy()
         if direction.length_squared() == 0:
             direction = pygame.Vector2(1, 0)
-        self.bullets.append(Bullet(pygame.Vector2(self.player.rect.center), direction))
+        muzzle = (
+            pygame.Vector2(self.player.rect.center)
+            + direction * (self.player.size / 2 + BULLET_SIZE / 2)
+            - pygame.Vector2(BULLET_SIZE / 2)
+        )
+        self.bullets.append(Bullet(muzzle, direction))
 
     def _update_projectiles(self, dt: float, *, can_hit_enemies: bool) -> None:
         for bullet in list(self.bullets):
@@ -391,6 +416,7 @@ class Game:
             "game_over",
             "stats",
             "level_clear",
+            "coming_soon",
         ):
             self._draw_level()
             if self.state == "paused":
@@ -401,6 +427,8 @@ class Game:
                 self._draw_stats()
             elif self.state == "level_clear":
                 self._draw_level_clear()
+            elif self.state == "coming_soon":
+                self._draw_coming_soon()
         elif self.state == "shop" and self.shop is not None:
             self.shop.draw(self.screen)
         pygame.display.flip()
@@ -548,34 +576,29 @@ class Game:
             overlay.fill((0, 0, 0, 0), wall.move(-cam_x, -cam_y))
         self.screen.blit(overlay, (0, 0))
 
-    def _draw_hud(self) -> None:
-        bar_w, bar_h = 232, 16
-        bar_x, bar_y = 36, 28
-        bg_rect = pygame.Rect(bar_x, bar_y, bar_w, bar_h)
-        pygame.draw.rect(self.screen, (28, 32, 40), bg_rect)
-        ratio = self.player.hp / self.player.max_hp
-        if ratio > 0.5:
-            color = COLORS["ok"]
-        elif ratio > 0.25:
-            color = COLORS["highlight"]
-        else:
-            color = COLORS["error"]
-        fg_rect = pygame.Rect(bar_x, bar_y, int(bar_w * ratio), bar_h)
-        pygame.draw.rect(self.screen, color, fg_rect)
-        frame = SPRITES.load("ui/hp_frame.png", (256, 32))
-        if frame is not None:
-            self.screen.blit(frame, (24, 20))
-        hp_text = self.font_hud.render(
-            f"{self.player.hp}/{self.player.max_hp}",
-            True,
-            COLORS["hud"],
+    @staticmethod
+    def _heart_rect(index: int) -> pygame.Rect:
+        column = index % HEARTS_PER_ROW
+        row = index // HEARTS_PER_ROW
+        return pygame.Rect(
+            HEART_ORIGIN[0] + column * (HEART_SIZE + HEART_GAP),
+            HEART_ORIGIN[1] + row * (HEART_SIZE + HEART_GAP),
+            HEART_SIZE,
+            HEART_SIZE,
         )
-        self.screen.blit(hp_text, (bar_x + bar_w + 24, bar_y - 8))
-        coin_icon = SPRITES.load("ui/icon_coin.png", (24, 24))
-        if coin_icon is not None:
-            self.screen.blit(coin_icon, (352, 24))
-        coin_text = self.font_hud.render(str(self.coins), True, COLORS["highlight"])
-        self.screen.blit(coin_text, (382, 20))
+
+    def _draw_hud(self) -> None:
+        current_hp = max(0, self.player.hp)
+        for index in range(self.player.max_hp):
+            filled = index < current_hp
+            rect = self._heart_rect(index)
+            path = "ui/heart_full.png" if filled else "ui/heart_empty.png"
+            sprite = SPRITES.load(path, rect.size)
+            if sprite is not None:
+                self.screen.blit(sprite, rect)
+            else:
+                color = (205, 48, 58) if filled else (63, 43, 48)
+                pygame.draw.rect(self.screen, color, rect)
         if self.room.is_boss:
             label = "关卡 3  Boss 房"
         else:
@@ -586,8 +609,20 @@ class Game:
         room_text = self.font_hud.render(label, True, COLORS["hud"])
         self.screen.blit(
             room_text,
-            (WINDOW_WIDTH - room_text.get_width() - 30, bar_y - 4),
+            (WINDOW_WIDTH - room_text.get_width() - 30, 20),
         )
+
+    def _draw_coming_soon(self) -> None:
+        overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 190))
+        self.screen.blit(overlay, (0, 0))
+        panel = SPRITES.panel("ui/panel.png", (620, 280), 16)
+        if panel is not None:
+            self.screen.blit(panel, ((WINDOW_WIDTH - 620) // 2, 220))
+        title = self.font_title.render("后续内容正在开发", True, COLORS["hud"])
+        hint = self.font_hint.render("按任意键返回标题画面", True, COLORS["info"])
+        self.screen.blit(title, ((WINDOW_WIDTH - title.get_width()) // 2, 290))
+        self.screen.blit(hint, ((WINDOW_WIDTH - hint.get_width()) // 2, 390))
 
     def _draw_paused(self) -> None:
         overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)

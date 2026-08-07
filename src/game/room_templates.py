@@ -123,6 +123,7 @@ ROOM_TEMPLATES = (
 )
 
 PLAYER_SPAWN_CELL: Cell = (16, 9)
+BOSS_EXIT_SWITCH_CELL: Cell = (26, 4)
 SWITCH_CELLS: tuple[Cell, ...] = ((5, 4), (26, 4), (5, 13), (26, 13))
 CRATE_CELLS: tuple[Cell, ...] = (
     (4, 4),

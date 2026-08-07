@@ -125,10 +125,20 @@ class Player:
                     shadow, shadow.get_rect(midbottom=(rect.centerx, rect.bottom + 2))
                 )
             bob = -1 if self.moving and int(self.animation_clock * 10) % 2 else 0
+            recoil = -self.facing * 2 if self.shoot_pose_timer > 0 else pygame.Vector2()
             surface.blit(
                 sprite,
-                sprite.get_rect(midbottom=(rect.centerx, rect.bottom + bob)),
+                sprite.get_rect(
+                    midbottom=(
+                        rect.centerx + round(recoil.x),
+                        rect.bottom + bob + round(recoil.y),
+                    )
+                ),
             )
+        if self.shoot_pose_timer > 0:
+            muzzle = pygame.Vector2(rect.center) + self.facing * (self.size / 2 + 5)
+            pygame.draw.circle(surface, (255, 166, 70), muzzle, 5)
+            pygame.draw.circle(surface, (255, 240, 178), muzzle, 2)
 
 
 class Zombie:
@@ -316,11 +326,15 @@ class Bullet:
 
     def draw(self, surface: pygame.Surface, cam_x: float = 0, cam_y: float = 0) -> None:
         rect = self.rect.move(-cam_x, -cam_y)
+        center = pygame.Vector2(rect.center)
+        tail = center - self.direction * 8
+        pygame.draw.line(surface, (255, 142, 52), tail, center, 3)
         sprite = SPRITES.load("props/bullet.png", (self.size, self.size))
         if sprite is None:
             pygame.draw.rect(surface, BULLET_COLOR, rect)
         else:
             surface.blit(sprite, rect)
+        pygame.draw.circle(surface, (255, 244, 190), center, 2)
 
 
 class Coin:

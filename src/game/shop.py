@@ -1,6 +1,7 @@
 import pygame
 
 from .config import COLORS, SHOP_ITEMS, WINDOW_WIDTH
+from .controls import event_key
 from .fonts import load_font
 from .resources import SPRITES
 
@@ -85,19 +86,20 @@ class ShopScreen:
 
     def handle_event(self, event: pygame.event.Event) -> str | None:
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_UP:
+            key = event_key(event)
+            if key == pygame.K_UP:
                 self.selected = (self.selected - 1) % (len(self.items) + 1)
                 self.error_message = ""
-            elif event.key == pygame.K_DOWN:
+            elif key == pygame.K_DOWN:
                 self.selected = (self.selected + 1) % (len(self.items) + 1)
                 self.error_message = ""
-            elif event.key == pygame.K_f:
+            elif key == pygame.K_f:
                 if self.selected < len(self.items):
                     self._purchase(self.items[self.selected])
                 else:
                     self.done = True
                     return "exit"
-            elif event.key == pygame.K_ESCAPE:
+            elif key == pygame.K_ESCAPE:
                 self.done = True
                 return "exit"
         return None

@@ -68,6 +68,16 @@ def cover(source: pygame.Surface, size: tuple[int, int]) -> pygame.Surface:
     return scaled.subsurface((left, top, *size)).copy()
 
 
+def harden_alpha(source: pygame.Surface) -> pygame.Surface:
+    result = pygame.Surface(source.get_size(), pygame.SRCALPHA)
+    for y in range(source.get_height()):
+        for x in range(source.get_width()):
+            red, green, blue, alpha = source.get_at((x, y))
+            if alpha >= 128:
+                result.set_at((x, y), (red, green, blue, 255))
+    return result
+
+
 def save(surface: pygame.Surface, relative_path: str) -> None:
     path = ASSETS / relative_path
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -156,6 +166,29 @@ def build_ui() -> None:
     )
     for source_rect, size, relative_path in specs:
         save(fit(crop(master, source_rect), size), relative_path)
+
+    heart_master = pygame.image.load(ASSETS / "ui/heart_icons_master_v1.png")
+    heart_mask = pygame.mask.from_surface(heart_master, 64)
+    components = heart_mask.connected_components(1000)
+    heart_rects: list[pygame.Rect] = []
+    for component in components:
+        rects = component.get_bounding_rects()
+        if not rects:
+            continue
+        bounds = rects[0].copy()
+        for rect in rects[1:]:
+            bounds.union_ip(rect)
+        heart_rects.append(bounds)
+    heart_rects.sort(key=lambda rect: rect.x)
+    if len(heart_rects) != 2:
+        raise RuntimeError("红心母版必须恰好包含两个独立图标")
+    for bounds, name in zip(
+        heart_rects,
+        ("heart_full", "heart_empty"),
+        strict=True,
+    ):
+        heart = fit(crop(heart_master, bounds), (24, 24), padding=1)
+        save(harden_alpha(heart), f"ui/{name}.png")
 
     concept = pygame.image.load(ASSETS / "concepts/art_direction_board_v1.png")
     room_scene = crop(concept, (0, 0, 996, 1024))

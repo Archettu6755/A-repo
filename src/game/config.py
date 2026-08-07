@@ -8,8 +8,14 @@ ROOM_GRID_HEIGHT = 18
 ROOM_WIDTH = ROOM_GRID_WIDTH * TILE_SIZE
 ROOM_HEIGHT = ROOM_GRID_HEIGHT * TILE_SIZE
 ROOM_TOP_OFFSET = 48
+ROOM_SCREEN_TOP = 120
 WALL_THICKNESS = TILE_SIZE
 DOOR_WIDTH = 2 * TILE_SIZE
+
+HEART_SIZE = 24
+HEARTS_PER_ROW = 3
+HEART_GAP = 4
+HEART_ORIGIN = (24, 6)
 
 ROOM_COUNT_RANGE = {1: (2, 3), 2: (2, 4), 3: (2, 4)}
 BOX_EXTRA_RANGE = {1: (0, 1), 2: (1, 2), 3: (2, 3)}
@@ -57,7 +63,7 @@ ZOMBIE_COLORS = {
 
 ZOMBIE_TYPES = {
     "normal": {
-        "hp": 3,
+        "hp": 5,
         "damage": 1,
         "speed": 1.2,
         "size": 28,
@@ -69,7 +75,7 @@ ZOMBIE_TYPES = {
         "color": "normal",
     },
     "fast": {
-        "hp": 2,
+        "hp": 3,
         "damage": 1,
         "speed": 2.0,
         "size": 20,
@@ -81,7 +87,7 @@ ZOMBIE_TYPES = {
         "color": "fast",
     },
     "heavy": {
-        "hp": 4,
+        "hp": 8,
         "damage": 2,
         "speed": 0.9,
         "size": 38,
@@ -102,7 +108,7 @@ COIN_LIFETIME = 20
 
 LEVEL_COUNT = 3
 LEVEL_CLEAR_DELAY = 2.5
-ZOMBIE_COUNT_RANGE = {1: (10, 12), 2: (14, 16), 3: (18, 20)}
+ZOMBIE_COUNT_PER_ROOM_RANGE = {1: (6, 8), 2: (8, 10), 3: (11, 13)}
 ZOMBIE_TYPE_WEIGHTS = {
     1: {"normal": 70, "fast": 20, "heavy": 10},
     2: {"normal": 55, "fast": 25, "heavy": 20},

@@ -52,6 +52,8 @@ class ResourceTests(unittest.TestCase):
             "ui/icon_move_speed.png": (32, 32),
             "ui/icon_heal.png": (32, 32),
             "ui/icon_coin.png": (24, 24),
+            "ui/heart_full.png": (24, 24),
+            "ui/heart_empty.png": (24, 24),
             "ui/title_background.png": (1280, 720),
         }
         directions = ("down", "left", "right", "up")
@@ -76,6 +78,18 @@ class ResourceTests(unittest.TestCase):
             self.assertIsNotNone(image, path)
             self.assertEqual(image.get_size(), size, path)
             self.assertGreater(pygame.mask.from_surface(image, 1).count(), 0, path)
+
+    def test_heart_icons_have_hard_transparent_edges(self) -> None:
+        for name in ("heart_full.png", "heart_empty.png"):
+            image = pygame.image.load(ASSET_ROOT / "ui" / name)
+            self.assertEqual(image.get_size(), (24, 24))
+            self.assertEqual(image.get_at((0, 0)).a, 0)
+            alphas = {
+                image.get_at((x, y)).a
+                for x in range(image.get_width())
+                for y in range(image.get_height())
+            }
+            self.assertLessEqual(alphas, {0, 255})
 
 
 if __name__ == "__main__":
