@@ -46,6 +46,9 @@ class Player:
         self.cooldown = cooldown
         self.speed = speed
         self.facing = pygame.Vector2(1, 0)
+        self.moving = False
+        self.animation_clock = 0.0
+        self.shoot_pose_timer = 0.0
         self.fire_timer = 0.0
         self.invincible_timer = 0.0
 
@@ -54,6 +57,7 @@ class Player:
         return pygame.Rect(0, 0, self.size, self.size).move(self.pos.x, self.pos.y)
 
     def move(self, dx: float, dy: float, blockers: list[pygame.Rect]) -> None:
+        self.moving = dx != 0 or dy != 0
         if dx != 0 or dy != 0:
             self.facing = pygame.Vector2(dx, dy)
             if self.facing.length_squared() > 0:
@@ -76,6 +80,7 @@ class Player:
         if self.fire_timer > 0:
             return False
         self.fire_timer = self.cooldown
+        self.shoot_pose_timer = 0.1
         return True
 
     def take_hit(self, damage: int) -> bool:
@@ -86,7 +91,9 @@ class Player:
         return True
 
     def update(self, dt: float) -> None:
+        self.animation_clock += dt
         self.fire_timer = max(0.0, self.fire_timer - dt)
+        self.shoot_pose_timer = max(0.0, self.shoot_pose_timer - dt)
         self.invincible_timer = max(0.0, self.invincible_timer - dt)
 
     def heal(self, amount: int) -> None:
@@ -97,14 +104,31 @@ class Player:
             return
         rect = self.rect.move(-cam_x, -cam_y)
         direction = _direction_name(self.facing)
+        if self.shoot_pose_timer > 0:
+            action = "shoot"
+        elif self.invincible_timer > 0:
+            action = "hurt"
+        elif self.moving:
+            action = "walk"
+        else:
+            action = "idle"
         sprite = SPRITES.load(
-            f"characters/player/player_idle_{direction}.png",
+            f"characters/player/player_{action}_{direction}.png",
             (32, 48),
         )
         if sprite is None:
             pygame.draw.rect(surface, PLAYER_COLOR, rect)
         else:
-            surface.blit(sprite, sprite.get_rect(midbottom=rect.midbottom))
+            shadow = SPRITES.load("props/shadow_small.png", (24, 10))
+            if shadow is not None:
+                surface.blit(
+                    shadow, shadow.get_rect(midbottom=(rect.centerx, rect.bottom + 2))
+                )
+            bob = -1 if self.moving and int(self.animation_clock * 10) % 2 else 0
+            surface.blit(
+                sprite,
+                sprite.get_rect(midbottom=(rect.centerx, rect.bottom + bob)),
+            )
 
 
 class Zombie:
@@ -125,6 +149,8 @@ class Zombie:
         self.state = "wander"
         self.state_timer = 0.0
         self.charge_dir = pygame.Vector2(0, 0)
+        self.facing = pygame.Vector2(1, 0)
+        self.animation_clock = 0.0
         self.charge_origin = pygame.Vector2(pos)
         self.color = ZOMBIE_COLORS[data["color"]]
 
@@ -139,6 +165,7 @@ class Zombie:
         room,
         blockers: list[pygame.Rect],
     ) -> None:
+        self.animation_clock += dt
         if self.state == "stun":
             self.state_timer -= dt
             if self.state_timer <= 0:
@@ -179,11 +206,13 @@ class Zombie:
             self.state = "warning"
             self.state_timer = self.warning_time
             self.charge_dir = direction.normalize()
+            self.facing = self.charge_dir.copy()
             return
 
         move = player_pos - self.pos
         if move.length_squared() > 0:
             move = move.normalize()
+            self.facing = move.copy()
         new_pos = self.pos + move * self.base_speed * dt * 60
         rect = pygame.Rect(0, 0, self.size, self.size).move(new_pos)
         if rect.collidelist(blockers) == -1:
@@ -240,9 +269,7 @@ class Zombie:
             "charge": "leap" if self.kind == "fast" else "charge",
             "stun": "stun",
         }[self.state]
-        direction = _direction_name(
-            self.charge_dir if self.state != "wander" else pygame.Vector2(1, 0)
-        )
+        direction = _direction_name(self.facing)
         canvas = {"normal": (32, 48), "fast": (32, 40), "heavy": (48, 56)}[self.kind]
         sprite = SPRITES.load(
             f"characters/zombie_{self.kind}/zombie_{self.kind}_{action}_{direction}.png",
@@ -251,7 +278,21 @@ class Zombie:
         if sprite is None:
             pygame.draw.rect(surface, self.color, rect)
         else:
-            surface.blit(sprite, sprite.get_rect(midbottom=rect.midbottom))
+            shadow_size = (36, 14) if self.kind == "heavy" else (24, 10)
+            shadow = SPRITES.load("props/shadow_small.png", shadow_size)
+            if shadow is not None:
+                surface.blit(
+                    shadow, shadow.get_rect(midbottom=(rect.centerx, rect.bottom + 2))
+                )
+            bob = (
+                -1
+                if self.state == "wander" and int(self.animation_clock * 8) % 2
+                else 0
+            )
+            surface.blit(
+                sprite,
+                sprite.get_rect(midbottom=(rect.centerx, rect.bottom + bob)),
+            )
         if self.state == "warning":
             pygame.draw.circle(surface, (220, 70, 65), rect.center, rect.width // 2, 2)
         elif self.state == "stun":
@@ -274,7 +315,12 @@ class Bullet:
         return self.pos.distance_to(self.origin) <= BULLET_RANGE
 
     def draw(self, surface: pygame.Surface, cam_x: float = 0, cam_y: float = 0) -> None:
-        pygame.draw.rect(surface, BULLET_COLOR, self.rect.move(-cam_x, -cam_y))
+        rect = self.rect.move(-cam_x, -cam_y)
+        sprite = SPRITES.load("props/bullet.png", (self.size, self.size))
+        if sprite is None:
+            pygame.draw.rect(surface, BULLET_COLOR, rect)
+        else:
+            surface.blit(sprite, rect)
 
 
 class Coin:
@@ -292,7 +338,12 @@ class Coin:
         return self.timer > 0
 
     def draw(self, surface: pygame.Surface, cam_x: float = 0, cam_y: float = 0) -> None:
-        pygame.draw.rect(surface, COIN_COLOR, self.rect.move(-cam_x, -cam_y))
+        rect = self.rect.move(-cam_x, -cam_y)
+        sprite = SPRITES.load("props/coin.png", (16, 16))
+        if sprite is None:
+            pygame.draw.rect(surface, COIN_COLOR, rect)
+        else:
+            surface.blit(sprite, sprite.get_rect(center=rect.center))
 
 
 def spawn_zombie(kind_weights: dict[str, int], pos: pygame.Vector2) -> Zombie:

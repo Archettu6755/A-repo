@@ -2,6 +2,7 @@ import pygame
 
 from .config import COLORS, SHOP_ITEMS, WINDOW_WIDTH
 from .fonts import load_font
+from .resources import SPRITES
 
 CARD_WIDTH = 680
 CARD_HEIGHT = 72
@@ -105,9 +106,11 @@ class ShopScreen:
         self.error_timer = max(0.0, self.error_timer - dt)
 
     def _draw_coin_icon(self, surface: pygame.Surface, center: tuple[int, int]) -> None:
-        pygame.draw.circle(surface, COLORS["highlight"], center, 12)
-        pygame.draw.circle(surface, COLORS["background"], center, 12, 3)
-        pygame.draw.circle(surface, (200, 150, 30), center, 5)
+        icon = SPRITES.load("ui/icon_coin.png", (24, 24))
+        if icon is None:
+            pygame.draw.circle(surface, COLORS["highlight"], center, 12)
+        else:
+            surface.blit(icon, icon.get_rect(center=center))
 
     def _draw_coins(self, surface: pygame.Surface) -> None:
         x = (WINDOW_WIDTH - CARD_WIDTH) // 2
@@ -128,24 +131,47 @@ class ShopScreen:
         desc: str,
         selected: bool,
         can_afford: bool,
+        *,
+        key: str | None = None,
+        capped: bool = False,
     ) -> None:
         rect = pygame.Rect(CARD_START_X, self._card_y(index), CARD_WIDTH, CARD_HEIGHT)
-        if selected:
-            fill = (58, 60, 74) if can_afford else (58, 52, 52)
-            border = COLORS["highlight"] if can_afford else COLORS["error"]
+        background = SPRITES.panel("ui/panel.png", rect.size, 16)
+        if background is None:
+            pygame.draw.rect(surface, (40, 42, 52), rect)
+            pygame.draw.rect(surface, COLORS["info"], rect, 2)
         else:
-            fill = (40, 42, 52)
-            border = COLORS["disabled"] if not can_afford else COLORS["info"]
-        pygame.draw.rect(surface, fill, rect, border_radius=10)
-        pygame.draw.rect(surface, border, rect, 3, border_radius=10)
+            surface.blit(background, rect)
+            if capped:
+                border = COLORS["ok"]
+            elif selected:
+                border = COLORS["highlight"]
+            elif not can_afford:
+                border = COLORS["disabled"]
+            else:
+                border = COLORS["info"]
+            pygame.draw.rect(surface, border, rect, 2)
 
         color = COLORS["highlight"] if selected else COLORS["hud"]
         if not can_afford and not selected:
             color = COLORS["disabled"]
+        text_x = rect.x + 24
+        icon_paths = {
+            "attack": "ui/icon_attack.png",
+            "max_hp": "ui/icon_health.png",
+            "fire_speed": "ui/icon_fire_speed.png",
+            "move_speed": "ui/icon_move_speed.png",
+            "heal": "ui/icon_heal.png",
+        }
+        if key in icon_paths:
+            icon = SPRITES.load(icon_paths[key], (40, 40))
+            if icon is not None:
+                surface.blit(icon, (rect.x + 16, rect.y + 16))
+                text_x = rect.x + 68
         label_surf = self.item_font.render(label, True, color)
-        surface.blit(label_surf, (rect.x + 24, rect.y + 8))
+        surface.blit(label_surf, (text_x, rect.y + 8))
         desc_surf = self.small_font.render(desc, True, COLORS["info"])
-        surface.blit(desc_surf, (rect.x + 24, rect.y + 40))
+        surface.blit(desc_surf, (text_x, rect.y + 40))
 
         if price is not None:
             coin_center = (rect.right - 92, rect.centery)
@@ -156,6 +182,9 @@ class ShopScreen:
 
     def draw(self, surface: pygame.Surface) -> None:
         surface.fill(COLORS["background"])
+        panel = SPRITES.panel("ui/panel.png", (780, 680), 16)
+        if panel is not None:
+            surface.blit(panel, ((surface.get_width() - 780) // 2, 20))
         title = f"第 {self.level} 关通过！商店"
         title_surf = self.title_font.render(title, True, COLORS["title"])
         surface.blit(title_surf, ((WINDOW_WIDTH - title_surf.get_width()) // 2, 50))
@@ -172,6 +201,8 @@ class ShopScreen:
                 item["desc"] if not capped else "已达成长上限",
                 selected=i == self.selected,
                 can_afford=afford and not capped,
+                key=item["key"],
+                capped=capped,
             )
 
         self._draw_card(

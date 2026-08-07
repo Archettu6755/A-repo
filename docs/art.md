@@ -209,4 +209,4 @@ ui_icon_attack.png
 6. 四方向和状态命名完整。
 7. 素材来源、作者和许可证记录在 `assets/ATTRIBUTION.md`。
 
-概念图只用于确定风格，不直接作为运行时素材。运行时 Sprite Sheet 需要按规范清理、切片和逐帧检查。
+母版不由游戏直接加载。`tools/build_runtime_assets.py` 负责切片、缩放并生成运行时 PNG；生成后的角色、环境、物件、效果和 UI 文件仍需按本节逐项检查。

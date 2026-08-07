@@ -20,9 +20,11 @@ from .config import (
     ZOMBIE_COUNT_RANGE,
     ZOMBIE_TYPE_WEIGHTS,
 )
+from .controls import Controls
 from .entities import Bullet, Coin, Player, Zombie, drop_coin
 from .fonts import load_font, warn_if_no_cjk_font
 from .level import Level
+from .resources import ROOM_ART, SPRITES
 from .shop import ShopScreen
 
 
@@ -33,6 +35,7 @@ class Game:
         pygame.display.set_caption("像素士兵 VS 僵尸")
         pygame.mouse.set_visible(False)
         self.clock = pygame.time.Clock()
+        self.controls = Controls()
         self.font_title = load_font(48, bold=True)
         self.font_hud = load_font(28)
         self.font_hint = load_font(20)
@@ -58,6 +61,7 @@ class Game:
         self.state = "title"
 
     def start_level(self, level: int, fresh: bool) -> None:
+        self.controls.clear()
         self.level = level
         self.level_map = Level(level)
         if fresh:
@@ -78,6 +82,7 @@ class Game:
         self.state = "playing"
 
     def start_boss_room(self) -> None:
+        self.controls.clear()
         self.level_map = Level(3, boss_only=True)
         self.current_room = 0
         self.player.pos = self.room.spawn.copy()
@@ -125,10 +130,12 @@ class Game:
         self.state = "paused"
 
     def _resume(self) -> None:
+        self.controls.clear()
         self.state = self.paused_from
 
     def handle_events(self) -> None:
         for event in pygame.event.get():
+            self.controls.handle_event(event)
             if event.type == pygame.QUIT:
                 self.running = False
                 return
@@ -140,6 +147,7 @@ class Game:
                     pygame.K_e,
                     pygame.K_ESCAPE,
                 ):
+                    self.controls.clear()
                     self.state = self.stats_from
             elif self.state == "paused":
                 self._handle_pause_event(event)
@@ -190,11 +198,12 @@ class Game:
             self._update_clear(dt)
         elif self.state == "shop" and self.shop is not None:
             self.shop.update(dt)
+        self.controls.update(dt)
 
     def _player_input(self) -> tuple[float, float]:
-        keys = pygame.key.get_pressed()
-        dx = (keys[pygame.K_RIGHT] - keys[pygame.K_LEFT]) * self.player.speed
-        dy = (keys[pygame.K_DOWN] - keys[pygame.K_UP]) * self.player.speed
+        axis_x, axis_y = self.controls.movement_axis()
+        dx = axis_x * self.player.speed
+        dy = axis_y * self.player.speed
         return dx, dy
 
     def _update_clear(self, dt: float) -> None:
@@ -274,8 +283,9 @@ class Game:
             self.room.lit = True
 
     def _try_fire(self) -> None:
-        if not pygame.key.get_pressed()[pygame.K_f] or not self.player.try_fire():
+        if not self.controls.wants_fire() or not self.player.try_fire():
             return
+        self.controls.consume_fire()
         direction = self.player.facing.copy()
         if direction.length_squared() == 0:
             direction = pygame.Vector2(1, 0)
@@ -396,38 +406,128 @@ class Game:
         pygame.display.flip()
 
     def _draw_title(self) -> None:
+        background = SPRITES.load(
+            "ui/title_background.png", (WINDOW_WIDTH, WINDOW_HEIGHT)
+        )
+        if background is not None:
+            self.screen.blit(background, (0, 0))
+            shade = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
+            shade.fill((8, 12, 18, 135))
+            self.screen.blit(shade, (0, 0))
         title = self.font_title.render("像素士兵 VS 僵尸", True, COLORS["title"])
-        self.screen.blit(title, ((WINDOW_WIDTH - title.get_width()) // 2, 240))
+        self.screen.blit(title, ((WINDOW_WIDTH - title.get_width()) // 2, 180))
         hint = self.font_hint.render("按任意键开始", True, COLORS["info"])
-        self.screen.blit(hint, ((WINDOW_WIDTH - hint.get_width()) // 2, 330))
+        self.screen.blit(hint, ((WINDOW_WIDTH - hint.get_width()) // 2, 260))
 
     def _draw_level(self) -> None:
         cam_x, cam_y = self.camera
         room_rect = self.room.rect.move(-cam_x, -cam_y)
-        pygame.draw.rect(self.screen, (48, 56, 62), room_rect)
+        floor = ROOM_ART.floor(
+            self.level,
+            self.room.template_id,
+            self.room.rect.size,
+        )
+        self.screen.blit(floor, room_rect)
         for wall in self.room.walls:
-            pygame.draw.rect(self.screen, COLORS["wall"], wall.move(-cam_x, -cam_y))
-        for obstacle in self.room.obstacles:
-            rect = obstacle.rect.move(-cam_x, -cam_y)
-            pygame.draw.rect(self.screen, OBSTACLE_COLORS[obstacle.kind], rect)
-            pygame.draw.rect(self.screen, OBSTACLE_BORDER, rect, 2)
-        for box in self.room.boxes:
-            pygame.draw.rect(self.screen, BOX_COLOR, box.rect.move(-cam_x, -cam_y))
-        if self.room.switch is not None:
-            self.room.switch.draw(self.screen, cam_x, cam_y)
+            self._draw_tiled_wall(wall.move(-cam_x, -cam_y))
         for door in self.level_map.doors_of(self.current_room):
-            door.draw(self.screen, cam_x, cam_y)
+            self._draw_door(door, cam_x, cam_y)
 
-        actors = [self.player, *self.room.zombies]
-        for actor in sorted(actors, key=lambda item: item.rect.bottom):
-            actor.draw(self.screen, cam_x, cam_y)
-        for bullet in self.bullets:
-            bullet.draw(self.screen, cam_x, cam_y)
         for coin in self.coin_items:
             if self.room.rect.colliderect(coin.rect):
                 coin.draw(self.screen, cam_x, cam_y)
+
+        renderables = [
+            (obstacle.rect.bottom, "obstacle", obstacle)
+            for obstacle in self.room.obstacles
+        ]
+        renderables.extend((box.rect.bottom, "box", box) for box in self.room.boxes)
+        if self.room.switch is not None:
+            renderables.append(
+                (self.room.switch.rect.bottom, "switch", self.room.switch)
+            )
+        renderables.extend(
+            (actor.rect.bottom, "actor", actor)
+            for actor in (self.player, *self.room.zombies)
+        )
+        for _, kind, item in sorted(renderables, key=lambda entry: entry[0]):
+            if kind == "actor":
+                item.draw(self.screen, cam_x, cam_y)
+            else:
+                self._draw_scene_item(kind, item, cam_x, cam_y)
+
+        for bullet in self.bullets:
+            bullet.draw(self.screen, cam_x, cam_y)
         self._draw_vision()
         self._draw_hud()
+
+    def _draw_tiled_wall(self, rect: pygame.Rect) -> None:
+        path = (
+            "environment/shared/wall_broken.png"
+            if self.level == 3
+            else "environment/shared/wall.png"
+        )
+        tile_size = (64, rect.height) if rect.width >= rect.height else (rect.width, 64)
+        tile = SPRITES.load(path, tile_size)
+        if tile is None:
+            pygame.draw.rect(self.screen, COLORS["wall"], rect)
+            return
+        self.screen.set_clip(rect)
+        for y in range(rect.top, rect.bottom, tile.get_height()):
+            for x in range(rect.left, rect.right, tile.get_width()):
+                self.screen.blit(tile, (x, y))
+        self.screen.set_clip(None)
+
+    def _draw_door(self, door, cam_x: float, cam_y: float) -> None:
+        rect = door.rect.move(-cam_x, -cam_y)
+        path = (
+            "environment/shared/door_open.png"
+            if door.open
+            else "environment/shared/door_closed.png"
+        )
+        sprite = SPRITES.load(path, (64, 64))
+        if sprite is None:
+            color = (60, 160, 80) if door.open else (110, 80, 60)
+            pygame.draw.rect(self.screen, color, rect)
+        else:
+            self.screen.blit(sprite, sprite.get_rect(center=rect.center))
+
+    def _draw_scene_item(self, kind: str, item, cam_x: float, cam_y: float) -> None:
+        rect = item.rect.move(-cam_x, -cam_y)
+        if kind == "obstacle":
+            paths = {
+                "pillar": "environment/shared/pillar.png",
+                "wall": "environment/shared/low_wall.png",
+                "block": "environment/shared/pit.png",
+            }
+            if item.kind == "pillar":
+                size = (max(32, rect.width), max(64, rect.height + 32))
+            elif item.kind == "wall":
+                size = (rect.width, max(48, rect.height))
+            else:
+                size = rect.size
+            sprite = SPRITES.load(paths[item.kind], size)
+            if sprite is None:
+                pygame.draw.rect(self.screen, OBSTACLE_COLORS[item.kind], rect)
+                pygame.draw.rect(self.screen, OBSTACLE_BORDER, rect, 2)
+            else:
+                self.screen.blit(sprite, sprite.get_rect(midbottom=rect.midbottom))
+            return
+        if kind == "box":
+            damage = max(0, min(2, 3 - item.hp))
+            name = ("crate_intact", "crate_damage_01", "crate_damage_02")[damage]
+            sprite = SPRITES.load(f"props/{name}.png", (32, 40))
+            if sprite is None:
+                pygame.draw.rect(self.screen, BOX_COLOR, rect)
+            else:
+                self.screen.blit(sprite, sprite.get_rect(midbottom=rect.midbottom))
+            return
+        path = "props/switch_on.png" if item.active else "props/switch_off.png"
+        sprite = SPRITES.load(path, (24, 36))
+        if sprite is None:
+            item.draw(self.screen, cam_x, cam_y)
+        else:
+            self.screen.blit(sprite, sprite.get_rect(midbottom=rect.midbottom))
 
     def _draw_vision(self) -> None:
         overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
@@ -449,10 +549,10 @@ class Game:
         self.screen.blit(overlay, (0, 0))
 
     def _draw_hud(self) -> None:
-        bar_w, bar_h = 240, 22
-        bar_x, bar_y = 24, 24
+        bar_w, bar_h = 232, 16
+        bar_x, bar_y = 36, 28
         bg_rect = pygame.Rect(bar_x, bar_y, bar_w, bar_h)
-        pygame.draw.rect(self.screen, (60, 60, 70), bg_rect)
+        pygame.draw.rect(self.screen, (28, 32, 40), bg_rect)
         ratio = self.player.hp / self.player.max_hp
         if ratio > 0.5:
             color = COLORS["ok"]
@@ -462,12 +562,20 @@ class Game:
             color = COLORS["error"]
         fg_rect = pygame.Rect(bar_x, bar_y, int(bar_w * ratio), bar_h)
         pygame.draw.rect(self.screen, color, fg_rect)
+        frame = SPRITES.load("ui/hp_frame.png", (256, 32))
+        if frame is not None:
+            self.screen.blit(frame, (24, 20))
         hp_text = self.font_hud.render(
             f"{self.player.hp}/{self.player.max_hp}",
             True,
             COLORS["hud"],
         )
-        self.screen.blit(hp_text, (bar_x + bar_w + 16, bar_y - 4))
+        self.screen.blit(hp_text, (bar_x + bar_w + 24, bar_y - 8))
+        coin_icon = SPRITES.load("ui/icon_coin.png", (24, 24))
+        if coin_icon is not None:
+            self.screen.blit(coin_icon, (352, 24))
+        coin_text = self.font_hud.render(str(self.coins), True, COLORS["highlight"])
+        self.screen.blit(coin_text, (382, 20))
         if self.room.is_boss:
             label = "关卡 3  Boss 房"
         else:
@@ -485,6 +593,9 @@ class Game:
         overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 160))
         self.screen.blit(overlay, (0, 0))
+        panel = SPRITES.panel("ui/panel.png", (500, 350), 16)
+        if panel is not None:
+            self.screen.blit(panel, ((WINDOW_WIDTH - 500) // 2, 180))
         text = self.font_title.render("已暂停", True, COLORS["hud"])
         self.screen.blit(text, ((WINDOW_WIDTH - text.get_width()) // 2, 220))
         labels = ("继续游戏", "返回标题")
@@ -512,8 +623,12 @@ class Game:
             panel_w,
             panel_h,
         )
-        pygame.draw.rect(self.screen, (40, 42, 52), panel)
-        pygame.draw.rect(self.screen, COLORS["info"], panel, 2)
+        panel_sprite = SPRITES.panel("ui/panel.png", panel.size, 16)
+        if panel_sprite is None:
+            pygame.draw.rect(self.screen, (40, 42, 52), panel)
+            pygame.draw.rect(self.screen, COLORS["info"], panel, 2)
+        else:
+            self.screen.blit(panel_sprite, panel)
         title = self.font_title.render("属性面板", True, COLORS["highlight"])
         self.screen.blit(title, (panel.centerx - title.get_width() // 2, panel.y + 24))
         rows = [

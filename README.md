@@ -1,6 +1,6 @@
 # 像素风肉鸽射击游戏
 
-这是一款使用 Python 和 Pygame 开发的轻量俯视角射击游戏。玩家进入军事隔离区，在黑暗房间中寻找照明机关、清理僵尸、收集金币并购买强化。一局共三关，第三关商店之后进入暂时为空的 Boss 房。
+这是一款使用 Python 和 pygame-ce 开发的轻量俯视角射击游戏。玩家进入军事隔离区，在黑暗房间中寻找照明机关、清理僵尸、收集金币并购买强化。一局共三关，第三关商店之后进入暂时为空的 Boss 房。
 
 游戏采用 32px 网格、房间模板池和 3/4 俯视像素画，使用软件渲染，不要求独立显卡。
 
@@ -93,7 +93,17 @@ uv run game
 - `docs/map.md`：地图结构、房间模板和校验规则
 - `docs/art.md`：美术方向、资源清单和导出规范
 
-## 视觉母版
+## 美术资源
+
+游戏直接加载 `assets/characters/`、`assets/environment/shared/`、`assets/props/`、`assets/effects/` 和 `assets/ui/` 下的运行时 PNG。角色按脚底 Y 坐标与场景物件排序，地面按 32px Tile 拼接，UI 面板使用九宫格缩放。
+
+修改母版后可以重新生成运行时资源：
+
+```powershell
+uv run python tools/build_runtime_assets.py
+```
+
+制作母版如下：
 
 - `assets/concepts/art_direction_board_v1.png`：整体风格板
 - `assets/characters/character_turnarounds_v1.png`：角色四方向母版

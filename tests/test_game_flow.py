@@ -56,6 +56,33 @@ class GameFlowTests(unittest.TestCase):
         self.game._update_projectiles(0, can_hit_enemies=True)
         self.assertNotIn(box, self.game.room.boxes)
 
+    def test_short_fire_tap_creates_bullet(self) -> None:
+        self.game.start_level(1, fresh=True)
+        self.game.controls.handle_event(
+            pygame.event.Event(pygame.KEYDOWN, key=pygame.K_f)
+        )
+        self.game.controls.handle_event(
+            pygame.event.Event(pygame.KEYUP, key=pygame.K_f)
+        )
+        self.game._try_fire()
+        self.assertEqual(len(self.game.bullets), 1)
+
+    def test_fire_tap_waits_for_nearly_ready_cooldown(self) -> None:
+        self.game.start_level(1, fresh=True)
+        self.game.player.fire_timer = 0.05
+        self.game.controls.handle_event(
+            pygame.event.Event(pygame.KEYDOWN, key=pygame.K_f)
+        )
+        self.game.controls.handle_event(
+            pygame.event.Event(pygame.KEYUP, key=pygame.K_f)
+        )
+        self.game._try_fire()
+        self.assertFalse(self.game.bullets)
+        self.game.player.update(0.06)
+        self.game.controls.update(0.06)
+        self.game._try_fire()
+        self.assertEqual(len(self.game.bullets), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
