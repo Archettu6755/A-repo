@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pygame
 
-from game.fonts import find_cjk_font_path, load_font
+from game.fonts import BUNDLED_FONT_PATH, find_cjk_font_path, load_font
 
 
 class FontTests(unittest.TestCase):
@@ -23,6 +23,16 @@ class FontTests(unittest.TestCase):
         ):
             self.assertEqual(find_cjk_font_path(), expected)
             match_font.assert_not_called()
+
+    def test_bundled_font_is_used_before_system_fonts(self) -> None:
+        with patch("game.fonts.pygame.font.match_font") as match_font:
+            self.assertEqual(find_cjk_font_path(), BUNDLED_FONT_PATH)
+            match_font.assert_not_called()
+
+    def test_bundled_font_renders_chinese_text(self) -> None:
+        surface = load_font(24).render("后续内容正在开发", False, "white")
+        self.assertGreater(surface.get_width(), 0)
+        self.assertGreater(pygame.mask.from_surface(surface, 1).count(), 0)
 
     def test_broken_system_font_registry_falls_back_without_crashing(self) -> None:
         with (

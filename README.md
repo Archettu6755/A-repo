@@ -91,7 +91,7 @@ uv run game
 
 第三关商店结束后会进入完全点亮的独立 Boss 房。房内没有箱子、普通敌人或照明机关。Boss 第一阶段有 100 点生命，使用单次长距离冲锋；第二阶段有 50 点生命，移动和冲锋更快，预警与硬直更短，并连续冲锋两次。两次冲锋分别锁定方向，冲锋途中不会转向追踪。第一阶段冲锋造成 2 点伤害，第二阶段造成 3 点伤害。
 
-Boss 撞到墙体或固定障碍后会进入硬直。第二阶段生命归零后播放约 1 秒死亡效果，随后显示“后续内容正在开发”。此时按任意键返回标题画面，不会再次进入商店。Boss 的正式形象和背景设定仍待美术讨论。
+Boss 名为“封锁区破城者”，是一名被感染的前军事封锁重装人员。第一阶段保留灰白防爆装甲，第二阶段胸背装甲破裂并露出暗红感染裂纹。Boss 撞到墙体或固定障碍后会进入硬直。第二阶段生命归零后播放约 1 秒死亡效果，随后显示“后续内容正在开发”。此时按任意键返回标题画面，不会再次进入商店。
 
 ## 项目文档
 
@@ -102,7 +102,7 @@ Boss 撞到墙体或固定障碍后会进入硬直。第二阶段生命归零后
 
 ## 美术资源
 
-游戏直接加载 `assets/characters/`、`assets/environment/shared/`、`assets/props/`、`assets/effects/` 和 `assets/ui/` 下的运行时 PNG。角色按脚底 Y 坐标与场景物件排序，地面按 32px Tile 拼接，UI 面板使用九宫格缩放。
+运行时 PNG 分别保存在 `assets/characters/`、`assets/environment/`、`assets/props/`、`assets/effects/` 和 `assets/ui/`。当前游戏继续使用兼容的单帧角色图；同目录中的横向 `_sheet.png`、Boss 和战斗效果资源可供后续动画接入。游戏优先使用 `assets/fonts/` 中随包发布的简体中文像素字体。角色按脚底 Y 坐标与场景物件排序，地面按 32px Tile 拼接，UI 面板使用九宫格缩放。
 
 修改母版后可以重新生成运行时资源：
 
@@ -114,6 +114,13 @@ uv run python tools/build_runtime_assets.py
 
 - `assets/concepts/art_direction_board_v1.png`：整体风格板
 - `assets/characters/character_turnarounds_v1.png`：角色四方向母版
+- `assets/characters/character_actions_master_v1.png`：角色移动与攻击动作母版
+- `assets/characters/character_hurt_death_master_v1.png`：角色受击与死亡动作母版
+- `assets/characters/boss/boss_character_master_v1.png`：Boss 两阶段四方向母版
+- `assets/characters/boss/boss_actions_master_v1.png`：Boss 硬直与死亡动作母版
 - `assets/environment/environment_props_master_v1.png`：场景与物件母版
+- `assets/environment/environment_decals_master_v1.png`：警戒、裂纹和污渍贴花母版
+- `assets/effects/combat_effects_master_v1.png`：枪口、命中、冲锋和掉落效果母版
+- `assets/effects/secondary_effects_master_v1.png`：箱子碎屑与玩家受伤效果母版
 - `assets/ui/ui_master_v1.png`：UI 母版
 - `assets/ui/heart_icons_master_v1.png`：满红心和空红心母版
