@@ -3,12 +3,9 @@ import sys
 
 import pygame
 
-BUNDLED_FONT_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-    "assets",
-    "fonts",
-    "fusion_pixel_12px_zh_hans.ttf",
-)
+from .resources import ASSET_ROOT
+
+BUNDLED_FONT_PATH = str(ASSET_ROOT / "fonts" / "fusion_pixel_12px_zh_hans.ttf")
 
 CANDIDATE_PATHS = (
     "/mnt/c/Windows/Fonts/msyh.ttc",

@@ -7,7 +7,12 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 import pygame
 
-from game.config import ROOM_SCREEN_TOP
+from game.config import (
+    HEART_ORIGIN,
+    LEVEL_CLEAR_DELAY,
+    ROOM_SCREEN_LEFT,
+    ROOM_SCREEN_TOP,
+)
 from game.entities import Bullet
 from game.game import Game
 from game.resources import SPRITES
@@ -29,7 +34,7 @@ class GameFlowTests(unittest.TestCase):
             Game()
         stop_text_input.assert_called_once_with()
 
-    def test_third_shop_exits_to_boss_room_with_exit_switch(self) -> None:
+    def test_third_shop_exits_to_boss_room_with_boss(self) -> None:
         self.game.start_level(3, fresh=True)
         self.game.shop = ShopScreen(
             3,
@@ -44,12 +49,33 @@ class GameFlowTests(unittest.TestCase):
         self.assertTrue(self.game.room.lit)
         self.assertFalse(self.game.room.zombies)
         self.assertFalse(self.game.room.boxes)
-        self.assertIsNotNone(self.game.room.switch)
+        self.assertIsNone(self.game.room.switch)
+        self.assertIsNotNone(self.game.boss)
+
+    def test_three_level_flow_reaches_boss_after_third_shop(self) -> None:
+        self.game.start_level(1, fresh=True)
+        for expected_level in (1, 2, 3):
+            with self.subTest(level=expected_level):
+                self.assertEqual(self.game.level, expected_level)
+                for room in self.game.level_map.rooms:
+                    room.zombies.clear()
+                self.game.update(1 / 60)
+                self.assertEqual(self.game.state, "level_clear")
+                self.game.update(LEVEL_CLEAR_DELAY)
+                self.assertEqual(self.game.state, "shop")
+                self.game.shop.selected = len(self.game.shop.items)
+                self.game._handle_shop_event(
+                    pygame.event.Event(pygame.KEYDOWN, key=pygame.K_f)
+                )
+        self.assertEqual(self.game.state, "boss_room")
+        self.assertIsNotNone(self.game.boss)
 
     def test_room_screen_starts_below_heart_hud(self) -> None:
         self.game.start_level(1, fresh=True)
+        self.assertEqual(ROOM_SCREEN_LEFT, 128)
+        self.assertEqual(HEART_ORIGIN, (8, 6))
         room_left, room_top = self.game._to_screen(self.game.room.rect.topleft)
-        self.assertEqual(room_left, 128)
+        self.assertEqual(room_left, ROOM_SCREEN_LEFT)
         self.assertEqual(room_top, ROOM_SCREEN_TOP)
 
         heart_rects = [self.game._heart_rect(index) for index in range(10)]
@@ -59,10 +85,39 @@ class GameFlowTests(unittest.TestCase):
         for rect in heart_rects:
             rows[rect.y] = rows.get(rect.y, 0) + 1
         self.assertEqual(list(rows.values()), [3, 3, 3, 1])
-        cam_x, cam_y = self.game.camera
-        screen_walls = [wall.move(-cam_x, -cam_y) for wall in self.game.room.walls]
-        self.assertTrue(
-            all(heart.collidelist(screen_walls) == -1 for heart in heart_rects)
+        for shake_timer in (0.0, 0.1, 11 / 120):
+            with self.subTest(shake_timer=shake_timer):
+                self.game.screen_shake_timer = shake_timer
+                cam_x, cam_y = self.game.camera
+                screen_walls = [
+                    wall.move(-cam_x, -cam_y) for wall in self.game.room.walls
+                ]
+                self.assertTrue(
+                    all(heart.collidelist(screen_walls) == -1 for heart in heart_rects)
+                )
+                visual_wall_bounds = [
+                    pygame.Rect(
+                        wall.left,
+                        wall.top - 16,
+                        wall.width,
+                        wall.height + 16,
+                    )
+                    for wall in screen_walls
+                ]
+                self.assertTrue(
+                    all(
+                        heart.collidelist(visual_wall_bounds) == -1
+                        for heart in heart_rects
+                    )
+                )
+
+    def test_level_two_block_cluster_uses_fissure_art(self) -> None:
+        self.game.start_level(2, fresh=True)
+        with patch.object(SPRITES, "load", wraps=SPRITES.load) as load:
+            self.game._draw_block_cluster(pygame.Rect(0, 0, 64, 96))
+        self.assertIn(
+            "environment/shared/pit_vertical.png",
+            [call.args[0] for call in load.call_args_list],
         )
 
     def test_hud_draws_full_and_empty_hearts_without_coin(self) -> None:
@@ -76,19 +131,22 @@ class GameFlowTests(unittest.TestCase):
         self.assertEqual(paths.count("ui/heart_empty.png"), 2)
         self.assertNotIn("ui/icon_coin.png", paths)
 
-    def test_boss_exit_switch_opens_development_notice(self) -> None:
+    def test_boss_death_finishes_before_development_notice(self) -> None:
         self.game.start_boss_room()
         self.assertIsNone(self.game.shop)
-        self.game.player.pos = pygame.Vector2(self.game.room.switch.rect.topleft)
-        self.game.update(1 / 60)
-        self.assertTrue(self.game.room.switch.active)
+        self.game.boss._load_phase(2)
+        self.game.boss.hp = 1
+        self.game.boss.take_damage(1)
+        self.game._begin_boss_death()
+        self.game.update(0.99)
+        self.assertEqual(self.game.state, "boss_death")
+        self.game.update(0.01)
         self.assertEqual(self.game.state, "coming_soon")
         self.game.draw()
 
     def test_development_notice_returns_to_title_on_any_key(self) -> None:
         self.game.start_boss_room()
-        self.game.player.pos = pygame.Vector2(self.game.room.switch.rect.topleft)
-        self.game.update(1 / 60)
+        self.game.state = "coming_soon"
         pygame.event.clear()
         pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE))
         self.game.handle_events()
@@ -124,6 +182,23 @@ class GameFlowTests(unittest.TestCase):
         )
         self.game._try_fire()
         self.assertEqual(len(self.game.bullets), 1)
+
+    def test_player_speed_is_consistent_at_30_and_60_fps(self) -> None:
+        self.game.start_level(1, fresh=True)
+        self.game.controls.handle_event(
+            pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RIGHT)
+        )
+        dx_60, _ = self.game._player_input(1 / 60)
+        dx_30, _ = self.game._player_input(1 / 30)
+        self.assertAlmostEqual(dx_60 * 60, dx_30 * 30)
+
+    def test_darkness_keeps_full_outer_wall_height_visible(self) -> None:
+        self.game.start_level(1, fresh=True)
+        self.game.room.lit = False
+        self.game.screen.fill("white")
+        self.game._draw_vision()
+        self.assertEqual(self.game.screen.get_at((200, 80)), pygame.Color("white"))
+        self.assertEqual(self.game.screen.get_at((200, 140)), pygame.Color("black"))
 
     def test_event_queue_fire_tap_survives_full_frame(self) -> None:
         self.game.start_level(1, fresh=True)

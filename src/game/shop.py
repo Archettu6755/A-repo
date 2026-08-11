@@ -1,5 +1,6 @@
 import pygame
 
+from .audio import AUDIO
 from .config import COLORS, SHOP_ITEMS, WINDOW_WIDTH
 from .controls import event_key
 from .fonts import load_font
@@ -9,6 +10,7 @@ CARD_WIDTH = 680
 CARD_HEIGHT = 72
 CARD_GAP = 12
 CARD_START_X = (WINDOW_WIDTH - CARD_WIDTH) // 2
+ERROR_Y = 150
 
 
 class ShopScreen:
@@ -81,6 +83,7 @@ class ShopScreen:
             self.player.speed += 0.5
         elif key == "heal":
             self.player.heal(3)
+        AUDIO.play("purchase")
         self.error_message = "购买成功！"
         self.error_timer = 1.0
 
@@ -138,7 +141,15 @@ class ShopScreen:
         capped: bool = False,
     ) -> None:
         rect = pygame.Rect(CARD_START_X, self._card_y(index), CARD_WIDTH, CARD_HEIGHT)
-        background = SPRITES.panel("ui/panel.png", rect.size, 16)
+        if capped:
+            card_path = "ui/shop_card_maxed.png"
+        elif not can_afford:
+            card_path = "ui/shop_card_unavailable.png"
+        elif selected:
+            card_path = "ui/shop_card_selected.png"
+        else:
+            card_path = "ui/shop_card_normal.png"
+        background = SPRITES.panel(card_path, rect.size, 16)
         if background is None:
             pygame.draw.rect(surface, (40, 42, 52), rect)
             pygame.draw.rect(surface, COLORS["info"], rect, 2)
@@ -155,7 +166,7 @@ class ShopScreen:
             pygame.draw.rect(surface, border, rect, 2)
 
         color = COLORS["highlight"] if selected else COLORS["hud"]
-        if not can_afford and not selected:
+        if not can_afford:
             color = COLORS["disabled"]
         text_x = rect.x + 24
         icon_paths = {
@@ -224,6 +235,6 @@ class ShopScreen:
                 error_surf,
                 (
                     (WINDOW_WIDTH - error_surf.get_width()) // 2,
-                    self._card_y(len(self.items)) + CARD_HEIGHT + 16,
+                    ERROR_Y,
                 ),
             )

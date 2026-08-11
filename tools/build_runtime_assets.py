@@ -156,7 +156,7 @@ def build_characters() -> None:
                     cell_height,
                 ),
             )
-            sprite = fit(cell, size, padding=1, largest_only=True)
+            sprite = harden_alpha(fit(cell, size, padding=1, largest_only=True))
             save(sprite, f"characters/{character}/{character}_idle_{direction}.png")
 
     actions = pygame.image.load(ASSETS / "characters/character_actions_master_v1.png")
@@ -169,11 +169,13 @@ def build_characters() -> None:
     for row, character, size, first_action, second_action in action_specs:
         for column, direction in enumerate(directions):
             for action, offset in ((first_action, 0), (second_action, 4)):
-                sprite = fit(
-                    grid_crop(actions, 8, 4, column + offset, row),
-                    size,
-                    padding=1,
-                    largest_only=True,
+                sprite = harden_alpha(
+                    fit(
+                        grid_crop(actions, 8, 4, column + offset, row),
+                        size,
+                        padding=1,
+                        largest_only=True,
+                    )
                 )
                 save(
                     sprite,
@@ -186,11 +188,13 @@ def build_characters() -> None:
     for row, (character, size) in enumerate(rows):
         stun_action = "hurt" if character == "player" else "stun"
         for column, direction in enumerate(directions):
-            sprite = fit(
-                grid_crop(hurt_death, 8, 4, column, row),
-                size,
-                padding=1,
-                largest_only=True,
+            sprite = harden_alpha(
+                fit(
+                    grid_crop(hurt_death, 8, 4, column, row),
+                    size,
+                    padding=1,
+                    largest_only=True,
+                )
             )
             save(
                 sprite,
@@ -202,11 +206,13 @@ def build_characters() -> None:
                     f"characters/{character}/{character}_hurt_{direction}.png",
                 )
         for frame in range(4):
-            sprite = fit(
-                grid_crop(hurt_death, 8, 4, frame + 4, row),
-                size,
-                padding=1,
-                largest_only=True,
+            sprite = harden_alpha(
+                fit(
+                    grid_crop(hurt_death, 8, 4, frame + 4, row),
+                    size,
+                    padding=1,
+                    largest_only=True,
+                )
             )
             save(sprite, f"characters/{character}/{character}_death_{frame}.png")
 
@@ -292,11 +298,13 @@ def build_boss() -> None:
         ((1, "idle"), (1, "charge"), (2, "idle"), (2, "charge"))
     ):
         for column, direction in enumerate(directions):
-            sprite = fit(
-                grid_crop(master, 4, 4, column, row),
-                size,
-                padding=2,
-                largest_only=True,
+            sprite = harden_alpha(
+                fit(
+                    grid_crop(master, 4, 4, column, row),
+                    size,
+                    padding=2,
+                    largest_only=True,
+                )
             )
             save(
                 sprite,
@@ -306,22 +314,26 @@ def build_boss() -> None:
     actions = pygame.image.load(ASSETS / "characters/boss/boss_actions_master_v1.png")
     for phase, offset in ((1, 0), (2, 4)):
         for column, direction in enumerate(directions):
-            sprite = fit(
-                grid_crop(actions, 8, 2, column + offset, 0),
-                size,
-                padding=2,
-                largest_only=False,
+            sprite = harden_alpha(
+                fit(
+                    grid_crop(actions, 8, 2, column + offset, 0),
+                    size,
+                    padding=2,
+                    largest_only=False,
+                )
             )
             save(
                 sprite,
                 f"characters/boss/boss_phase{phase}_stun_{direction}.png",
             )
     for frame in range(8):
-        sprite = fit(
-            grid_crop(actions, 8, 2, frame, 1),
-            size,
-            padding=2,
-            largest_only=False,
+        sprite = harden_alpha(
+            fit(
+                grid_crop(actions, 8, 2, frame, 1),
+                size,
+                padding=2,
+                largest_only=False,
+            )
         )
         save(sprite, f"characters/boss/boss_death_{frame}.png")
 
@@ -531,7 +543,15 @@ def build_ui() -> None:
         ((760, 750, 205, 240), "ui/shop_card_maxed.png"),
     )
     for source_rect, relative_path in card_specs:
-        save(fit(crop(master, source_rect), (160, 208)), relative_path)
+        portrait = fit(crop(master, source_rect), (160, 208))
+        horizontal = pygame.Surface((160, 72), pygame.SRCALPHA)
+        horizontal.blit(portrait, (0, 0), (0, 0, 160, 16))
+        horizontal.blit(
+            pygame.transform.scale(portrait.subsurface((0, 64, 160, 128)), (160, 40)),
+            (0, 16),
+        )
+        horizontal.blit(portrait, (0, 56), (0, 192, 160, 16))
+        save(horizontal, relative_path)
 
     heart_master = pygame.image.load(ASSETS / "ui/heart_icons_master_v1.png")
     heart_mask = pygame.mask.from_surface(heart_master, 64)

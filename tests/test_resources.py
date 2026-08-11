@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pygame
 
-from game.resources import ASSET_ROOT, SpriteLibrary
+from game.resources import ASSET_ROOT, ROOM_ART_CACHE_LIMIT, RoomArt, SpriteLibrary
 
 
 class ResourceTests(unittest.TestCase):
@@ -23,6 +23,21 @@ class ResourceTests(unittest.TestCase):
             image = library.load("sprite.png", (4, 4))
             self.assertIsNotNone(image)
             self.assertEqual(image.get_size(), (4, 4))
+
+    def test_sprite_sheet_frames_are_cropped_and_cached(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            sheet = pygame.Surface((4, 2), pygame.SRCALPHA)
+            sheet.fill("red", (0, 0, 2, 2))
+            sheet.fill("blue", (2, 0, 2, 2))
+            pygame.image.save(sheet, root / "sheet.png")
+            library = SpriteLibrary(root)
+            first = library.frame("sheet.png", (2, 2), 0)
+            second = library.frame("sheet.png", (2, 2), 1)
+            self.assertIs(first, library.frame("sheet.png", (2, 2), 0))
+            self.assertEqual(first.get_at((0, 0)), pygame.Color("red"))
+            self.assertEqual(second.get_at((0, 0)), pygame.Color("blue"))
+            self.assertIsNone(library.frame("sheet.png", (2, 2), 2))
 
     def test_required_runtime_art_is_present_and_loadable(self) -> None:
         expected = {
@@ -132,16 +147,31 @@ class ResourceTests(unittest.TestCase):
             self.assertEqual(image.get_at((0, 0)).a, 0, path)
             self.assertGreater(pygame.mask.from_surface(image, 1).count(), 0, path)
 
+    def test_runtime_character_art_has_hard_alpha_edges(self) -> None:
+        character_root = ASSET_ROOT / "characters"
+        runtime_paths = [
+            path for path in character_root.glob("*/*.png") if "master" not in path.name
+        ]
+        self.assertGreater(len(runtime_paths), 200)
+        for path in runtime_paths:
+            image = pygame.image.load(path)
+            alphas = {
+                image.get_at((x, y)).a
+                for x in range(image.get_width())
+                for y in range(image.get_height())
+            }
+            self.assertLessEqual(alphas, {0, 255}, str(path.relative_to(ASSET_ROOT)))
+
     def test_theme_decals_and_shop_cards_are_present(self) -> None:
         expected = {
             "environment/checkpoint/floor_clean_01.png": (32, 32),
             "environment/checkpoint/floor_clean_02.png": (32, 32),
             "environment/laboratory/floor_damaged_01.png": (32, 32),
             "environment/laboratory/floor_damaged_02.png": (32, 32),
-            "ui/shop_card_normal.png": (160, 208),
-            "ui/shop_card_selected.png": (160, 208),
-            "ui/shop_card_unavailable.png": (160, 208),
-            "ui/shop_card_maxed.png": (160, 208),
+            "ui/shop_card_normal.png": (160, 72),
+            "ui/shop_card_selected.png": (160, 72),
+            "ui/shop_card_unavailable.png": (160, 72),
+            "ui/shop_card_maxed.png": (160, 72),
         }
         for index in range(1, 7):
             expected[f"environment/checkpoint/marking_{index:02d}.png"] = (32, 32)
@@ -169,6 +199,58 @@ class ResourceTests(unittest.TestCase):
                 for y in range(image.get_height())
             }
             self.assertLessEqual(alphas, {0, 255}, path)
+
+    def test_room_art_uses_confirmed_level_themes_and_seeded_cache(self) -> None:
+        class RecordingSprites:
+            def __init__(self) -> None:
+                self.paths: list[str] = []
+
+            def load(self, path: str, size: tuple[int, int]) -> pygame.Surface:
+                self.paths.append(path)
+                return pygame.Surface(size, pygame.SRCALPHA)
+
+        sprites = RecordingSprites()
+        art = RoomArt(sprites)
+        first = art.floor(1, "O01", (1024, 576), 10)
+        self.assertTrue(
+            any("environment/checkpoint/" in path for path in sprites.paths)
+        )
+        self.assertFalse(
+            any("environment/laboratory/" in path for path in sprites.paths)
+        )
+        self.assertIs(first, art.floor(1, "O01", (1024, 576), 10))
+
+        sprites.paths.clear()
+        second = art.floor(2, "S01", (1024, 576), 20)
+        self.assertTrue(
+            any("environment/laboratory/" in path for path in sprites.paths)
+        )
+        self.assertIsNot(first, second)
+
+    def test_room_art_places_decals_only_on_template_candidates(self) -> None:
+        class ColoredSprites:
+            @staticmethod
+            def load(path: str, size: tuple[int, int]) -> pygame.Surface:
+                surface = pygame.Surface(size, pygame.SRCALPHA)
+                color = "red" if "marking" in path else "black"
+                surface.fill(color)
+                return surface
+
+        art = RoomArt(ColoredSprites())
+        floor = art.floor(1, "O01", (320, 320), 10, [(3, 4)])
+        self.assertEqual(floor.get_at((3 * 32 + 1, 4 * 32 + 1)), pygame.Color("red"))
+        self.assertNotEqual(floor.get_at((2 * 32 + 1, 4 * 32 + 1)), pygame.Color("red"))
+
+    def test_room_art_cache_is_bounded_across_restarts(self) -> None:
+        class SolidSprites:
+            @staticmethod
+            def load(path: str, size: tuple[int, int]) -> pygame.Surface:
+                return pygame.Surface(size)
+
+        art = RoomArt(SolidSprites())
+        for visual_seed in range(ROOM_ART_CACHE_LIMIT + 4):
+            art.floor(1, "O01", (64, 64), visual_seed)
+        self.assertEqual(len(art._floor_cache), ROOM_ART_CACHE_LIMIT)
 
 
 if __name__ == "__main__":

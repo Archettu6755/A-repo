@@ -1,6 +1,10 @@
+import os
+
 WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 720
-FPS = 60
+LOW_PERFORMANCE_MODE = os.environ.get("GAME_LOW_PERFORMANCE") == "1"
+FPS = 30 if LOW_PERFORMANCE_MODE else 60
+MAX_VISUAL_EFFECTS = 80
 
 TILE_SIZE = 32
 ROOM_GRID_WIDTH = 32
@@ -8,6 +12,7 @@ ROOM_GRID_HEIGHT = 18
 ROOM_WIDTH = ROOM_GRID_WIDTH * TILE_SIZE
 ROOM_HEIGHT = ROOM_GRID_HEIGHT * TILE_SIZE
 ROOM_TOP_OFFSET = 48
+ROOM_SCREEN_LEFT = 128
 ROOM_SCREEN_TOP = 120
 WALL_THICKNESS = TILE_SIZE
 DOOR_WIDTH = 2 * TILE_SIZE
@@ -15,9 +20,11 @@ DOOR_WIDTH = 2 * TILE_SIZE
 HEART_SIZE = 24
 HEARTS_PER_ROW = 3
 HEART_GAP = 4
-HEART_ORIGIN = (24, 6)
+HEART_ORIGIN = (8, 6)
 
-ROOM_COUNT_RANGE = {1: (2, 3), 2: (2, 4), 3: (2, 4)}
+ROOM_COUNT_RANGE = {1: (2, 2), 2: (2, 3), 3: (2, 3)}
+OBSTACLE_CELL_RANGE = {1: (12, 20), 2: (18, 28), 3: (24, 36)}
+SECONDARY_GROUP_COUNT_RANGE = {1: (1, 1), 2: (1, 2), 3: (2, 3)}
 BOX_EXTRA_RANGE = {1: (0, 1), 2: (1, 2), 3: (2, 3)}
 
 OBSTACLE_COLORS = {
@@ -36,8 +43,9 @@ SWITCH_COLOR = (255, 255, 255)
 SWITCH_COLOR_ACTIVE = (120, 220, 120)
 
 VISION_RADIUS = 224
-ZOMBIE_CHARGE_DIST = 160
 ZOMBIE_SPAWN_GAP = 8
+ZOMBIE_WANDER_INTERVAL = (1.2, 2.5)
+ZOMBIE_RECOVERY_TIME = (0.4, 0.8)
 
 PLAYER_SIZE = 28
 PLAYER_SEPARATION_RADIUS = 12
@@ -69,8 +77,9 @@ ZOMBIE_TYPES = {
         "size": 28,
         "separation_radius": 12,
         "warning": 0.35,
+        "sensing_distance": 288,
         "charge_mult": 3.0,
-        "max_charge_dist": 400,
+        "max_charge_dist": 384,
         "stun": 0.6,
         "color": "normal",
     },
@@ -81,8 +90,9 @@ ZOMBIE_TYPES = {
         "size": 20,
         "separation_radius": 9,
         "warning": 0.20,
+        "sensing_distance": 256,
         "charge_mult": 3.0,
-        "max_charge_dist": 192,
+        "max_charge_dist": 320,
         "stun": 0.45,
         "color": "fast",
     },
@@ -93,10 +103,41 @@ ZOMBIE_TYPES = {
         "size": 38,
         "separation_radius": 17,
         "warning": 0.65,
+        "sensing_distance": 320,
         "charge_mult": 5.0,
-        "max_charge_dist": 320,
+        "max_charge_dist": 448,
         "stun": 0.9,
         "color": "heavy",
+    },
+}
+
+BOSS_SIZE = 56
+BOSS_SEPARATION_RADIUS = 28
+BOSS_CANVAS_SIZE = (80, 88)
+BOSS_DEATH_TIME = 1.0
+BOSS_CHARGE_SUBSTEP = 8.0
+BOSS_PHASE_STATS = {
+    1: {
+        "hp": 100,
+        "base_speed": 1.0,
+        "warning": 0.80,
+        "charge_speed": 6.0,
+        "max_charge_dist": 640.0,
+        "charges": 1,
+        "stun": 1.10,
+        "recovery": 1.00,
+        "damage": 2,
+    },
+    2: {
+        "hp": 50,
+        "base_speed": 1.4,
+        "warning": 0.40,
+        "charge_speed": 7.5,
+        "max_charge_dist": 480.0,
+        "charges": 2,
+        "stun": 0.60,
+        "recovery": 0.50,
+        "damage": 3,
     },
 }
 
