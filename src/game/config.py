@@ -22,7 +22,7 @@ HEARTS_PER_ROW = 3
 HEART_GAP = 4
 HEART_ORIGIN = (8, 6)
 
-ROOM_COUNT_RANGE = {1: (2, 2), 2: (2, 3), 3: (2, 3)}
+ROOM_COUNT_RANGE = {1: (1, 1), 2: (3, 3), 3: (2, 2)}
 OBSTACLE_CELL_RANGE = {1: (12, 20), 2: (18, 28), 3: (24, 36)}
 SECONDARY_GROUP_COUNT_RANGE = {1: (1, 1), 2: (1, 2), 3: (2, 3)}
 BOX_EXTRA_RANGE = {1: (0, 1), 2: (1, 2), 3: (2, 3)}
@@ -71,41 +71,41 @@ ZOMBIE_COLORS = {
 
 ZOMBIE_TYPES = {
     "normal": {
-        "hp": 5,
+        "hp": 4,
         "damage": 1,
-        "speed": 1.2,
+        "speed": 1.0,
         "size": 28,
         "separation_radius": 12,
-        "warning": 0.35,
-        "sensing_distance": 288,
-        "charge_mult": 3.0,
-        "max_charge_dist": 384,
+        "warning": 0.50,
+        "sensing_distance": 256,
+        "charge_mult": 2.5,
+        "max_charge_dist": 320,
         "stun": 0.6,
         "color": "normal",
     },
     "fast": {
-        "hp": 3,
+        "hp": 2,
         "damage": 1,
-        "speed": 2.0,
+        "speed": 1.6,
         "size": 20,
         "separation_radius": 9,
-        "warning": 0.20,
-        "sensing_distance": 256,
-        "charge_mult": 3.0,
-        "max_charge_dist": 320,
+        "warning": 0.35,
+        "sensing_distance": 224,
+        "charge_mult": 2.5,
+        "max_charge_dist": 256,
         "stun": 0.45,
         "color": "fast",
     },
     "heavy": {
-        "hp": 8,
+        "hp": 6,
         "damage": 2,
-        "speed": 0.9,
+        "speed": 0.8,
         "size": 38,
         "separation_radius": 17,
-        "warning": 0.65,
-        "sensing_distance": 320,
-        "charge_mult": 5.0,
-        "max_charge_dist": 448,
+        "warning": 0.80,
+        "sensing_distance": 256,
+        "charge_mult": 4.0,
+        "max_charge_dist": 352,
         "stun": 0.9,
         "color": "heavy",
     },
@@ -118,7 +118,7 @@ BOSS_DEATH_TIME = 1.0
 BOSS_CHARGE_SUBSTEP = 8.0
 BOSS_PHASE_STATS = {
     1: {
-        "hp": 100,
+        "hp": 80,
         "base_speed": 1.0,
         "warning": 0.80,
         "charge_speed": 6.0,
@@ -189,7 +189,6 @@ SHOP_ITEMS = [
         "raise": 5,
         "max_value": 5,
     },
-    {"key": "heal", "name": "回血", "desc": "恢复 3 点生命", "price": 2, "raise": 1},
 ]
 
 COLORS = {

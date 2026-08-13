@@ -287,6 +287,7 @@ class Game:
         self._update_coins(dt)
         self.clear_timer -= dt
         if self.clear_timer <= 0:
+            self.player.hp = self.player.max_hp
             self.shop = ShopScreen(
                 self.level,
                 self.coins,

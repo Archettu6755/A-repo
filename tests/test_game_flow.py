@@ -61,8 +61,10 @@ class GameFlowTests(unittest.TestCase):
                     room.zombies.clear()
                 self.game.update(1 / 60)
                 self.assertEqual(self.game.state, "level_clear")
+                self.game.player.hp = 1
                 self.game.update(LEVEL_CLEAR_DELAY)
                 self.assertEqual(self.game.state, "shop")
+                self.assertEqual(self.game.player.hp, self.game.player.max_hp)
                 self.game.shop.selected = len(self.game.shop.items)
                 self.game._handle_shop_event(
                     pygame.event.Event(pygame.KEYDOWN, key=pygame.K_f)

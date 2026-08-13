@@ -24,7 +24,7 @@ from game.resources import SPRITES
 
 EXPECTED_PHASES = {
     1: {
-        "hp": 100,
+        "hp": 80,
         "base_speed": 1.0,
         "warning": 0.80,
         "charge_speed": 6.0,

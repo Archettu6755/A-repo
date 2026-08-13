@@ -31,6 +31,10 @@ class ShopTests(unittest.TestCase):
         shop = ShopScreen(3, 0, self.make_player(), {})
         self.assertEqual(shop.exit_label, "进入 Boss 房")
 
+    def test_shop_has_no_healing_item(self) -> None:
+        shop = ShopScreen(1, 0, self.make_player(), {})
+        self.assertNotIn("heal", {item["key"] for item in shop.items})
+
     def test_purchase_counts_persist_between_shops(self) -> None:
         counts: dict[str, int] = {}
         player = self.make_player()

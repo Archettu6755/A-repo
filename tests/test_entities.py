@@ -17,21 +17,21 @@ from game.resources import SPRITES
 
 class ZombieBehaviorTests(unittest.TestCase):
     def test_confirmed_base_stats(self) -> None:
-        self.assertEqual(ZOMBIE_TYPES["normal"]["hp"], 5)
-        self.assertEqual(ZOMBIE_TYPES["fast"]["hp"], 3)
-        self.assertEqual(ZOMBIE_TYPES["heavy"]["hp"], 8)
-        self.assertEqual(ZOMBIE_TYPES["normal"]["speed"], 1.2)
-        self.assertEqual(ZOMBIE_TYPES["fast"]["speed"], 2.0)
-        self.assertEqual(ZOMBIE_TYPES["heavy"]["speed"], 0.9)
+        self.assertEqual(ZOMBIE_TYPES["normal"]["hp"], 4)
+        self.assertEqual(ZOMBIE_TYPES["fast"]["hp"], 2)
+        self.assertEqual(ZOMBIE_TYPES["heavy"]["hp"], 6)
+        self.assertEqual(ZOMBIE_TYPES["normal"]["speed"], 1.0)
+        self.assertEqual(ZOMBIE_TYPES["fast"]["speed"], 1.6)
+        self.assertEqual(ZOMBIE_TYPES["heavy"]["speed"], 0.8)
         self.assertEqual(ZOMBIE_TYPES["normal"]["separation_radius"], 12)
         self.assertEqual(ZOMBIE_TYPES["fast"]["separation_radius"], 9)
         self.assertEqual(ZOMBIE_TYPES["heavy"]["separation_radius"], 17)
 
     def test_confirmed_charge_parameters(self) -> None:
         expected = {
-            "normal": (288, 0.35, 3.0, 384, 0.6),
-            "fast": (256, 0.20, 3.0, 320, 0.45),
-            "heavy": (320, 0.65, 5.0, 448, 0.9),
+            "normal": (256, 0.50, 2.5, 320, 0.6),
+            "fast": (224, 0.35, 2.5, 256, 0.45),
+            "heavy": (256, 0.80, 4.0, 352, 0.9),
         }
         for kind, values in expected.items():
             data = ZOMBIE_TYPES[kind]
@@ -48,9 +48,9 @@ class ZombieBehaviorTests(unittest.TestCase):
 
     def test_level_scaling_changes_hp_but_only_third_level_damage(self) -> None:
         for kind, base_hp, base_damage in (
-            ("normal", 5, 1),
-            ("fast", 3, 1),
-            ("heavy", 8, 2),
+            ("normal", 4, 1),
+            ("fast", 2, 1),
+            ("heavy", 6, 2),
         ):
             first = Zombie(kind, pygame.Vector2(), level=1)
             second = Zombie(kind, pygame.Vector2(), level=2)
@@ -75,9 +75,9 @@ class ZombieBehaviorTests(unittest.TestCase):
         player = pygame.Vector2(150, 100)
         zombie.update(0.01, player, OpenRoom(), [])
         self.assertEqual(zombie.state, "warning")
-        zombie.update(0.36, player, OpenRoom(), [])
+        zombie.update(0.51, player, OpenRoom(), [])
         self.assertEqual(zombie.state, "charge")
-        self.assertEqual(zombie.speed, zombie.base_speed * 3)
+        self.assertEqual(zombie.speed, zombie.base_speed * 2.5)
 
     def test_blocker_prevents_charge_detection(self) -> None:
         class OpenRoom:
@@ -105,7 +105,7 @@ class ZombieBehaviorTests(unittest.TestCase):
         zombie.update(0.01, pygame.Vector2(200, 100), OpenRoom(), [])
         self.assertEqual(zombie.state, "warning")
         zombie.update(
-            0.36,
+            0.51,
             pygame.Vector2(zombie.rect.centerx, 220),
             OpenRoom(),
             [],
@@ -169,7 +169,7 @@ class ZombieBehaviorTests(unittest.TestCase):
         zombie.charge_origin = zombie.pos.copy()
         zombie.update(1 / 60, pygame.Vector2(700, 100), OpenRoom(), [])
         self.assertEqual(zombie.state, "charge")
-        self.assertAlmostEqual(zombie.pos.x, 104.5)
+        self.assertAlmostEqual(zombie.pos.x, 103.2)
         self.assertFalse(zombie.consume_wall_impact())
 
     def test_fast_warning_uses_all_four_prepare_frames(self) -> None:
@@ -206,6 +206,38 @@ class ZombieBehaviorTests(unittest.TestCase):
 
 
 class PlayerAnimationTests(unittest.TestCase):
+    def test_walking_uses_static_pose_without_vertical_bob(self) -> None:
+        player = Player(
+            pygame.Vector2(100, 100),
+            PLAYER_MAX_HP,
+            PLAYER_ATTACK,
+            PLAYER_FIRE_COOLDOWN,
+            PLAYER_SPEED,
+        )
+        player.moving = True
+        player.facing = pygame.Vector2(1, 0)
+        sprite = pygame.Surface((32, 48), pygame.SRCALPHA)
+        sprite.fill((255, 255, 255, 255))
+        shadow = pygame.Surface((24, 10), pygame.SRCALPHA)
+
+        def load_sprite(path: str, _size: tuple[int, int]):
+            return shadow if path == "props/shadow_small.png" else sprite
+
+        frames: list[bytes] = []
+        with (
+            patch.object(SPRITES, "load", side_effect=load_sprite) as load,
+            patch.object(SPRITES, "frame") as frame,
+        ):
+            for clock in (0.0, 0.11):
+                player.animation_clock = clock
+                surface = pygame.Surface((320, 240), pygame.SRCALPHA)
+                player.draw(surface)
+                frames.append(pygame.image.tobytes(surface, "RGBA"))
+
+        self.assertEqual(frames[0], frames[1])
+        frame.assert_not_called()
+        load.assert_any_call("characters/player/player_walk_right.png", (32, 48))
+
     def test_lethal_hit_uses_non_looping_death_sheet(self) -> None:
         player = Player(
             pygame.Vector2(100, 100),

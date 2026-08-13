@@ -45,7 +45,7 @@ class RoomTemplate:
     difficulty: int
     tags: tuple[str, ...]
     solids: tuple[CellRect, ...]
-    allowed_door_masks: tuple[int, ...] = tuple(range(1, 16))
+    allowed_door_masks: tuple[int, ...] = tuple(range(16))
     player_spawn_cells: tuple[Cell, ...] = DEFAULT_PLAYER_SPAWN_CELLS
     enemy_spawn_cells: tuple[Cell, ...] = DEFAULT_ENEMY_CELLS
     switch_cells: tuple[Cell, ...] = DEFAULT_SWITCH_CELLS

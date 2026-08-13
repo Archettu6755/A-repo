@@ -73,7 +73,7 @@ class LevelGenerationTests(unittest.TestCase):
         )
 
     def test_room_counts_and_topology(self) -> None:
-        expected_ranges = {1: range(2, 3), 2: range(2, 4), 3: range(2, 4)}
+        expected_ranges = {1: range(1, 2), 2: range(3, 4), 3: range(2, 3)}
         for level_number, expected in expected_ranges.items():
             for seed in range(20):
                 level = Level(level_number, rng=random.Random(seed))
@@ -82,6 +82,8 @@ class LevelGenerationTests(unittest.TestCase):
                 self.assertEqual(
                     len({room.coord for room in level.rooms}), len(level.rooms)
                 )
+                if level_number == 1:
+                    self.assertEqual(level.rooms[0].door_mask, 0)
                 for room in level.rooms:
                     self.assertTrue(room.template_id)
                     self.assertIsNotNone(room.switch)
@@ -89,6 +91,7 @@ class LevelGenerationTests(unittest.TestCase):
     def test_template_metadata_and_level_selection_rules(self) -> None:
         for template in ROOM_TEMPLATES:
             self.assertTrue(template.allowed_door_masks)
+            self.assertIn(0, template.allowed_door_masks)
             self.assertTrue(template.player_spawn_cells)
             self.assertGreaterEqual(len(template.enemy_spawn_cells), 13)
             self.assertTrue(template.switch_cells)
@@ -318,7 +321,7 @@ class LevelGenerationTests(unittest.TestCase):
                         self.assertGreaterEqual(distance, minimum)
 
     def test_doors_lock_until_current_room_is_clear(self) -> None:
-        level = Level(1, rng=random.Random(2))
+        level = Level(2, rng=random.Random(2))
         level.spawn_zombies((6, 6), lambda pos: Zombie("normal", pos))
         level.update_doors(0)
         self.assertTrue(level.doors_of(0))

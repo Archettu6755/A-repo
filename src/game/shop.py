@@ -81,8 +81,6 @@ class ShopScreen:
             )
         elif key == "move_speed":
             self.player.speed += 0.5
-        elif key == "heal":
-            self.player.heal(3)
         AUDIO.play("purchase")
         self.error_message = "购买成功！"
         self.error_timer = 1.0
@@ -174,7 +172,6 @@ class ShopScreen:
             "max_hp": "ui/icon_health.png",
             "fire_speed": "ui/icon_fire_speed.png",
             "move_speed": "ui/icon_move_speed.png",
-            "heal": "ui/icon_heal.png",
         }
         if key in icon_paths:
             icon = SPRITES.load(icon_paths[key], (40, 40))

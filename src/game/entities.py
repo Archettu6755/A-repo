@@ -126,9 +126,6 @@ class Player:
         self.shoot_pose_timer = max(0.0, self.shoot_pose_timer - dt)
         self.invincible_timer = max(0.0, self.invincible_timer - dt)
 
-    def heal(self, amount: int) -> None:
-        self.hp = min(self.max_hp, self.hp + amount)
-
     def draw(self, surface: pygame.Surface, cam_x: float = 0, cam_y: float = 0) -> None:
         if (
             not self.dead
@@ -148,41 +145,22 @@ class Player:
             action = "walk"
         else:
             action = "idle"
-        frame_counts = {"idle": 2, "walk": 4, "shoot": 3, "hurt": 2, "death": 6}
-        frame_rates = {
-            "idle": 3.0,
-            "walk": 9.0,
-            "shoot": 18.0,
-            "hurt": 10.0,
-            "death": 12.0,
-        }
-        action_clock = self.animation_clock
-        if action == "shoot":
-            action_clock = 0.15 - self.shoot_pose_timer
-        elif action == "hurt":
-            action_clock = INVINCIBLE_TIME - self.invincible_timer
-        elif action == "death":
-            action_clock = self.death_clock
-        sheet_path = (
-            "characters/player/player_death_sheet.png"
-            if action == "death"
-            else f"characters/player/player_{action}_{direction}_sheet.png"
-        )
-        sprite = _animation_sprite(
-            sheet_path,
-            (32, 48),
-            action_clock,
-            frame_counts[action],
-            frame_rates[action],
-            loop=action != "death",
-        )
-        if sprite is None:
-            fallback = (
-                "characters/player/player_death_3.png"
-                if action == "death"
-                else f"characters/player/player_{action}_{direction}.png"
+        if action == "death":
+            sprite = _animation_sprite(
+                "characters/player/player_death_sheet.png",
+                (32, 48),
+                self.death_clock,
+                6,
+                12.0,
+                loop=False,
             )
-            sprite = SPRITES.load(fallback, (32, 48))
+            if sprite is None:
+                sprite = SPRITES.load("characters/player/player_death_3.png", (32, 48))
+        else:
+            sprite = SPRITES.load(
+                f"characters/player/player_{action}_{direction}.png",
+                (32, 48),
+            )
         if sprite is None:
             pygame.draw.rect(surface, PLAYER_COLOR, rect)
         else:
@@ -191,14 +169,13 @@ class Player:
                 surface.blit(
                     shadow, shadow.get_rect(midbottom=(rect.centerx, rect.bottom + 2))
                 )
-            bob = -1 if self.moving and int(self.animation_clock * 10) % 2 else 0
             recoil = -self.facing * 2 if self.shoot_pose_timer > 0 else pygame.Vector2()
             surface.blit(
                 sprite,
                 sprite.get_rect(
                     midbottom=(
                         rect.centerx + round(recoil.x),
-                        rect.bottom + bob + round(recoil.y),
+                        rect.bottom + round(recoil.y),
                     )
                 ),
             )
