@@ -1,0 +1,189 @@
+:root {
+  color-scheme: dark;
+  --control-edge: max(18px, env(safe-area-inset-left));
+  --control-bottom: max(18px, env(safe-area-inset-bottom));
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: #05070b;
+  touch-action: none;
+}
+
+canvas,
+canvas.emscripten,
+#canvas {
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  width: min(100vw, calc(100vh * 16 / 9)) !important;
+  height: min(100vh, calc(100vw * 9 / 16)) !important;
+  margin: 0 !important;
+  border: 0 !important;
+  transform: translate(-50%, -50%) !important;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+#game-touch-controls {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: none;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+body.game-touch-enabled #game-touch-controls {
+  display: block;
+}
+
+.game-control {
+  position: absolute;
+  box-sizing: border-box;
+  margin: 0;
+  border: 2px solid rgb(255 255 255 / 52%);
+  border-radius: 16px;
+  color: #fff;
+  background: rgb(14 20 28 / 58%);
+  box-shadow: 0 3px 0 rgb(0 0 0 / 45%);
+  font: 700 24px/1 system-ui, sans-serif;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.game-control.is-pressed {
+  color: #ffe177;
+  background: rgb(103 42 31 / 78%);
+  border-color: #ffe177;
+  box-shadow: 0 1px 0 rgb(0 0 0 / 45%);
+  transform: translateY(2px);
+}
+
+.game-dpad {
+  position: absolute;
+  left: var(--control-edge);
+  bottom: var(--control-bottom);
+  width: 190px;
+  height: 190px;
+  pointer-events: none;
+}
+
+.game-dpad .game-control {
+  width: 64px;
+  height: 64px;
+  border-radius: 14px;
+}
+
+.game-up {
+  top: 0;
+  left: 63px;
+}
+
+.game-left {
+  top: 63px;
+  left: 0;
+}
+
+.game-right {
+  top: 63px;
+  right: 0;
+}
+
+.game-down {
+  bottom: 0;
+  left: 63px;
+}
+
+.game-actions {
+  position: absolute;
+  right: var(--control-edge);
+  bottom: var(--control-bottom);
+  width: 190px;
+  height: 190px;
+  pointer-events: none;
+}
+
+.game-action {
+  border-radius: 50%;
+}
+
+.game-action-f {
+  right: 0;
+  bottom: 0;
+  width: 84px;
+  height: 84px;
+  font-size: 34px;
+}
+
+.game-action-e {
+  right: 92px;
+  bottom: 86px;
+  width: 66px;
+  height: 66px;
+  font-size: 27px;
+}
+
+.game-escape {
+  top: max(64px, env(safe-area-inset-top));
+  right: var(--control-edge);
+  width: 76px;
+  height: 46px;
+  border-radius: 12px;
+  font-size: 17px;
+}
+
+#game-rotate-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: #f5f7f8;
+  background: rgb(5 7 11 / 94%);
+  font: 700 24px/1.4 system-ui, sans-serif;
+}
+
+body.game-touch-enabled.game-portrait #game-rotate-overlay {
+  display: flex;
+}
+
+.game-rotate-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: center;
+  padding: 28px 36px;
+  border: 2px solid rgb(255 255 255 / 24%);
+  border-radius: 18px;
+  background: #111821;
+}
+
+.game-rotate-icon {
+  color: #ffe177;
+  font-size: 56px;
+}
+
+@media (max-height: 520px) {
+  .game-dpad,
+  .game-actions {
+    transform: scale(0.82);
+  }
+
+  .game-dpad {
+    transform-origin: left bottom;
+  }
+
+  .game-actions {
+    transform-origin: right bottom;
+  }
+}

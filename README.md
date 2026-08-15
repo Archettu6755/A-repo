@@ -4,6 +4,14 @@
 
 游戏采用 32px 网格、房间模板池和 3/4 俯视像素画，使用软件渲染，不要求独立显卡。
 
+## 在线游玩
+
+正式网页地址是 [https://archettu6755.github.io/A-repo/](https://archettu6755.github.io/A-repo/)。打开网页并等待标题画面出现即可开始。首次打开需要下载浏览器运行时，之后浏览器会复用缓存。
+
+电脑使用方向键、F、E 和 ESC。手机和平板请横屏游玩，左下角是方向键，右下角 F 用于射击和确认，E 用于查看属性，右上角 ESC 用于暂停或返回。触屏支持移动和射击同时按住。竖屏时游戏会暂停并显示横屏提示。
+
+刷新或关闭网页会结束当前一局。网页版本不需要 Python、uv、本地服务器或独立显卡。
+
 ## 运行环境
 
 - Windows 10 或 Windows 11
@@ -35,6 +43,25 @@ uv run game
 关闭当前 PowerShell 窗口后，这个设置会自动失效。
 
 进入标题界面后按任意键开始新游戏。开始新游戏会重置金币和所有商店强化。
+
+## 浏览器构建和发布
+
+开发者在仓库根目录执行：
+
+```powershell
+uv sync --dev
+uv run python tools/build_web.py
+```
+
+生成文件位于 `build/web/`。浏览器不能直接打开本地 `index.html`，本地检查时需要启动静态文件服务：
+
+```powershell
+uv run python -m http.server 8000 --directory build/web
+```
+
+然后打开 [http://localhost:8000/](http://localhost:8000/)。
+
+推送 `main` 后，GitHub Actions 会运行测试和 Ruff，重新构建网页包，并发布到 GitHub Pages。构建固定使用 pygbag 0.9.2；0.9.3 当前存在[官方模板加载问题](https://github.com/pygame-web/pygbag/issues/227)，在该问题解决并完成浏览器回归前不要升级。若 Actions 的部署步骤提示 Pages 未启用，请在仓库 `Settings -> Pages -> Source` 中选择 `GitHub Actions`，然后重新运行工作流。
 
 ## 操作
 

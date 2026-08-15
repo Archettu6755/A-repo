@@ -25,7 +25,9 @@
 
 ## 3. 系统结构
 
-浏览器版本使用 pygbag 将 Python 和 pygame-ce 游戏打包为浏览器可运行的 WebAssembly 应用。构建与发布过程如下：
+浏览器版本使用 pygbag 0.9.2 将 Python 和 pygame-ce 游戏打包为浏览器可运行的 WebAssembly 应用。0.9.3 的官方模板在当前运行时会请求已经移除的 BrowserFS 文件并停在加载画面，因此在上游问题修复前不得擅自升级。
+
+构建与发布过程如下：
 
 ```text
 GitHub 仓库中的正式代码
@@ -85,7 +87,7 @@ uv run game
 
 ## 6. 资源规则
 
-浏览器构建只包含运行游戏所需的文件。美术母版、设计源文件、测试截图、开发文档和构建缓存不进入网页资源包。
+浏览器构建只包含运行游戏所需的文件。`tools/build_web.py` 按运行时代码使用的资源清单整理图片、字体和音频。美术母版、独立帧备份、未使用的 UI 变体、设计源文件、测试截图、开发文档和构建缓存不进入网页资源包。
 
 浏览器版本必须随包提供中文字体，不得依赖参与者电脑中的 Windows、WSL 或 Linux 系统字体。桌面版与浏览器版应当优先加载同一份项目字体。
 
@@ -168,6 +170,8 @@ uv run game
 
 GitHub Actions 负责安装构建工具、生成网页资源并发布 GitHub Pages。Python、uv 和 pygbag 只存在于开发电脑或 GitHub Actions 环境中，不进入参与者的操作步骤。
 
+推送到 `main` 后自动执行 `.github/workflows/pages.yml`。维护者也可以在 GitHub Actions 页面手动触发同一工作流。网页构建产物位于 `build/web/`，该目录不提交到 Git，由 Actions 作为 Pages artifact 上传并发布。
+
 自动构建至少执行以下检查：
 
 - Python 测试通过。
@@ -182,7 +186,7 @@ GitHub Actions 负责安装构建工具、生成网页资源并发布 GitHub Pag
 
 浏览器版本完成时至少提供：
 
-- 一个可以公开访问的 GitHub Pages 游戏网址。
+- 默认 GitHub Pages 游戏网址 `https://archettu6755.github.io/A-repo/`。
 - 一个浏览器入口文件。
 - 一套 GitHub Actions 构建与发布配置。
 - 一份随游戏发布的中文字体。
@@ -227,10 +231,9 @@ GitHub Actions 负责安装构建工具、生成网页资源并发布 GitHub Pag
 
 如果后续需要离线课堂环境，可以在本协议基础上增加独立的离线交付协议，不直接改变在线版的产品边界。
 
-## 14. 实施前待确认项
+## 14. 已确认的发布设置
 
-实现浏览器版本前还需要确认以下事项：
-
-- GitHub Pages 使用仓库默认域名还是自定义域名。
-- 每次推送 `main` 后自动发布，还是由维护者手动触发发布。
-- CPython 和 pygame-ce WebAssembly 运行时使用 pygbag 官方 CDN，还是复制到 GitHub Pages 同源托管。
+- 使用仓库默认域名 `https://archettu6755.github.io/A-repo/`，当前不配置自定义域名。
+- 每次推送 `main` 后自动测试、构建和发布，同时保留手动触发入口。
+- CPython 和 pygame-ce WebAssembly 运行时使用 pygbag 0.9.2 对应的官方 CDN `https://pygame-web.github.io/archives/0.9/`。
+- 游戏代码、字体和美术资源由本仓库的 Pages 站点提供，运行时 CDN 不保存游戏关卡、操作记录或游戏状态。

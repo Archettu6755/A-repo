@@ -175,6 +175,7 @@ class Game:
         return "down" if direction.y >= 0 else "up"
 
     def _pause(self) -> None:
+        self.controls.clear()
         self.paused_from = self.state
         self.paused_selection = 0
         self.state = "paused"
@@ -1102,12 +1103,26 @@ class Game:
         hint = self.font_hint.render("快捡金币，即将进入商店…", True, COLORS["info"])
         self.screen.blit(hint, ((WINDOW_WIDTH - hint.get_width()) // 2, 340))
 
-    def run(self) -> None:
+    def start(self) -> None:
         warn_if_no_cjk_font()
         self.running = True
+
+    def run_frame(self, dt: float, *, active: bool = True) -> None:
+        if not active:
+            if any(event.type == pygame.QUIT for event in pygame.event.get()):
+                self.running = False
+            self.controls.clear()
+            self.draw()
+            return
+        self.handle_events()
+        if not self.running:
+            return
+        self.update(dt)
+        self.draw()
+
+    def run(self) -> None:
+        self.start()
         while self.running:
             dt = self.clock.tick(FPS) / 1000.0
-            self.handle_events()
-            self.update(dt)
-            self.draw()
+            self.run_frame(dt)
         pygame.quit()
