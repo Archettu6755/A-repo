@@ -44,25 +44,6 @@ uv run game
 
 进入标题界面后按任意键开始新游戏。开始新游戏会重置金币和所有商店强化。
 
-## 浏览器构建和发布
-
-开发者在仓库根目录执行：
-
-```powershell
-uv sync --dev
-uv run python tools/build_web.py
-```
-
-生成文件位于 `build/web/`。浏览器不能直接打开本地 `index.html`，本地检查时需要启动静态文件服务：
-
-```powershell
-uv run python -m http.server 8000 --directory build/web
-```
-
-然后打开 [http://localhost:8000/](http://localhost:8000/)。
-
-推送 `main` 后，GitHub Actions 会运行测试和 Ruff，重新构建网页包，并发布到 GitHub Pages。构建固定使用 pygbag 0.9.2；0.9.3 当前存在[官方模板加载问题](https://github.com/pygame-web/pygbag/issues/227)，在该问题解决并完成浏览器回归前不要升级。若 Actions 的部署步骤提示 Pages 未启用，请在仓库 `Settings -> Pages -> Source` 中选择 `GitHub Actions`，然后重新运行工作流。
-
 ## 操作
 
 | 场景 | 按键 | 功能 |
@@ -141,7 +122,6 @@ Boss 名为“封锁区破城者”，是一名被感染的前军事封锁重装
 - `docs/proposal.md`：正式需求和验收标准
 - `docs/map.md`：地图结构、房间模板和校验规则
 - `docs/art.md`：美术方向、资源清单和导出规范
-- `docs/web-delivery.md`：浏览器构建、触摸操作和发布要求
 
 ## 美术资源
 
